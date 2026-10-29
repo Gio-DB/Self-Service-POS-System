@@ -1,0 +1,66 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model MenuCategory {
+  id        Int        @id @default(autoincrement())
+  name      String     @unique
+  items     MenuItem[]
+  createdAt DateTime   @default(now()) @map("created_at")
+
+  @@map("menu_categories")
+}
+
+model MenuItem {
+  id                 Int          @id @default(autoincrement())
+  categoryId         Int          @map("category_id")
+  category           MenuCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  name               String
+  priceMinorUnits    Int          @map("price_minor_units")
+  isAvailable        Boolean      @default(true) @map("is_available")
+  orderItems         OrderItem[]
+  createdAt          DateTime     @default(now()) @map("created_at")
+  updatedAt          DateTime     @updatedAt @map("updated_at")
+
+  @@unique([categoryId, name])
+  @@map("menu_items")
+}
+
+model Order {
+  id                       String      @id @db.Uuid
+  orderType                String      @map("order_type")
+  tableNumber              String?     @map("table_number")
+  status                   String      @default("PENDING_REVIEW")
+  paymentStatus            String      @default("UNPAID") @map("payment_status")
+  totalMinorUnits          Int         @map("total_minor_units")
+  cashTenderedMinorUnits   Int?        @map("cash_tendered_minor_units")
+  changeDueMinorUnits      Int?        @map("change_due_minor_units")
+  createdAt                DateTime    @default(now()) @map("created_at")
+  updatedAt                DateTime    @updatedAt @map("updated_at")
+  paidAt                   DateTime?   @map("paid_at")
+  items                    OrderItem[]
+
+  @@index([status, createdAt])
+  @@index([paymentStatus, paidAt])
+  @@map("orders")
+}
+
+model OrderItem {
+  id                    Int       @id @default(autoincrement())
+  orderId               String    @db.Uuid @map("order_id")
+  order                 Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItemId            Int?      @map("menu_item_id")
+  menuItem              MenuItem? @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
+  itemName              String    @map("item_name")
+  quantity              Int
+  unitPriceMinorUnits   Int       @map("unit_price_minor_units")
+  notes                 String?
+
+  @@index([orderId])
+  @@map("order_items")
+}

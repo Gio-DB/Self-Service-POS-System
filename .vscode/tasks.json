@@ -1,0 +1,22 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Start POS Demo",
+      "type": "npm",
+      "script": "dev",
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "pos-demo",
+        "pattern": {
+          "regexp": "^(.*)$"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^\\[(api|web)\\]",
+          "endsPattern": "^\\[web\\].*Local:\\s+http://127\\.0\\.0\\.1:5173/"
+        }
+      }
+    }
+  ]
+}

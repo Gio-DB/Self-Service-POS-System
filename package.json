@@ -1,0 +1,24 @@
+{
+  "name": "restaurant-pos-demo",
+  "private": true,
+  "workspaces": [
+    "apps/api",
+    "apps/web"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n api,web -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "npm run dev -w @pos/api",
+    "dev:web": "npm run dev -w @pos/web",
+    "build": "npm run build -w @pos/api && npm run build -w @pos/web",
+    "test": "npm run test -w @pos/api && npm run test -w @pos/web",
+    "smoke": "node scripts/smoke-test.mjs",
+    "typecheck": "npm run typecheck -w @pos/api && npm run typecheck -w @pos/web",
+    "db:generate": "npm run db:generate -w @pos/api",
+    "db:migrate": "npm run db:migrate -w @pos/api",
+    "db:seed": "npm run db:seed -w @pos/api"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "typescript": "^5.9.3"
+  }
+}
