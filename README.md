@@ -2,7 +2,7 @@
 
 A local, browser-based prototype of a restaurant ordering flow. It has one React/Vite web app, one Express API, and one PostgreSQL database. The kiosk, waiter, kitchen display, and demo admin screens are routes in the same web app.
 
-This is a development demo, not production POS software. It has no staff authentication, persistent offline queue, payment provider, tax configuration, or production backup/security controls. The role/screen routes are for local demonstration only.
+This is a development demo, not production POS software. It uses shared role PINs for local staff access, but has no individual accounts, persistent offline queue, payment provider, tax configuration, or production backup/security controls.
 
 ## Requirements
 
@@ -37,7 +37,7 @@ npm run db:generate
 npm run db:seed
 ```
 
-The checked-in `.env.example` uses a local demo PostgreSQL URL and GBP display formatting. Change `DATABASE_URL` and `VITE_CURRENCY` in your untracked `.env` if needed. The GBP setting is only a demo default; choose the restaurant's currency before using real prices.
+The checked-in `.env.example` uses a local demo PostgreSQL URL, GBP display formatting, Europe/Berlin business-day boundaries, and shared demo PINs. Change `DATABASE_URL`, `VITE_CURRENCY`, `RESTAURANT_TIME_ZONE`, `STAFF_SESSION_SECRET`, and every `STAFF_*_PIN` in your untracked `.env` before any non-demo use. The GBP setting is only a demo default; choose the restaurant's currency before using real prices.
 
 Start the API and frontend together:
 
@@ -53,7 +53,7 @@ Or in VS Code, use **Terminal → Run Task → Start POS Demo**. Open:
 - Admin/report: <http://127.0.0.1:5173/admin>
 - API health: <http://127.0.0.1:3000/health>
 
-Use separate tabs or windows to demonstrate the views. The waiter screen refreshes order lists periodically; the KDS receives server updates over Socket.IO. Admin has a demo sold-out toggle and daily paid-sales summary.
+Use separate tabs or windows to demonstrate the views. The waiter screen requires PIN `1111`, the kitchen display requires `2222`, and admin requires `3333` when using the example configuration. The waiter screen refreshes its four order sections periodically; the KDS receives server updates over Socket.IO.
 
 ## Developer checks
 
@@ -81,7 +81,7 @@ The API is deliberately one process with focused route and business-rule modules
 ## Demo flow
 
 1. Add menu items to the kiosk basket and submit a takeaway or dine-in order.
-2. In Waiter, adjust item quantities and approve the order.
+2. In Waiter, enter the shared waiter PIN, modify item quantities or staff-only notes, and approve the order.
 3. In Kitchen, move it through Preparing and Ready.
 4. In Waiter, record cash tendered and verify change due.
 5. In Admin, inspect the daily paid-sales summary or mark a menu item sold out.
@@ -90,7 +90,7 @@ Orders and payment states are stored in PostgreSQL. Re-submitting the same order
 
 ## Current limitations
 
-- Demo pages are not protected by authentication. Do not expose this service to the public internet or use it for real transactions.
+- Staff roles use shared PINs, not individual staff identities or production-grade account management. Do not expose this service to the public internet or use it for real transactions.
 - Orders require a live API connection. Offline IndexedDB queueing is not implemented; disconnected orders are not restaurant-accepted.
 - Prices are seeded demo values in integer minor units. Currency/tax rules and kitchen station assignment are not configured.
 - The application has not been verified on Raspberry Pi/Ubuntu hardware. The Pi remains a later deployment target; no separate firmware is required.

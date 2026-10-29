@@ -42,11 +42,13 @@ model Order {
   changeDueMinorUnits      Int?        @map("change_due_minor_units")
   createdAt                DateTime    @default(now()) @map("created_at")
   updatedAt                DateTime    @updatedAt @map("updated_at")
+  approvedAt               DateTime?   @map("approved_at")
   paidAt                   DateTime?   @map("paid_at")
   items                    OrderItem[]
 
   @@index([status, createdAt])
   @@index([paymentStatus, paidAt])
+  @@index([approvedAt])
   @@map("orders")
 }
 

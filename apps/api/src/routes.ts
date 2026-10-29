@@ -1,7 +1,22 @@
 import { Prisma, PrismaClient } from "./generated/prisma/client.js";
 import { Router } from "express";
 import { z } from "zod";
+import {
+  createStaffSessionToken,
+  getStaffSession,
+  pinMatches,
+  readStaffAuthConfig,
+  requireStaffRole,
+  staffRoles,
+  staffSessionCookie,
+  staffSessionCookieOptions,
+} from "./auth.js";
+import {
+  restaurantTimeZone,
+  startOfRestaurantBusinessDay,
+} from "./business-time.js";
 import { HttpError } from "./errors.js";
+import { createKdsOrderBoard, createWaiterOrderBoard } from "./order-boards.js";
 import {
   calculateCashChange,
   calculateOrderTotal,
@@ -19,25 +34,27 @@ export type RealtimeEvents = {
   emit: (eventName: string) => unknown;
 };
 
+const customerOrderItemSchema = z.object({
+  menuItemId: z.number().int().positive(),
+  quantity: z.number().int().min(1).max(99),
+}).strict();
+
+const waiterOrderItemSchema = z.object({
+  menuItemId: z.number().int().positive(),
+  quantity: z.number().int().min(1).max(99),
+  notes: z.string().trim().max(200).optional().nullable(),
+}).strict();
+
 const orderInputSchema = z.object({
   id: z.string().uuid(),
   orderType: z.enum(["TAKEAWAY", "DINE_IN"]),
   tableNumber: z.string().trim().max(30).optional().nullable(),
-  items: z
-    .array(
-      z.object({
-        menuItemId: z.number().int().positive(),
-        quantity: z.number().int().min(1).max(99),
-        notes: z.string().trim().max(200).optional().nullable(),
-      }),
-    )
-    .min(1)
-    .max(50),
-});
+  items: z.array(customerOrderItemSchema).min(1).max(50),
+}).strict();
 
 const updateItemsSchema = z.object({
-  items: orderInputSchema.shape.items,
-});
+  items: z.array(waiterOrderItemSchema).min(1).max(50),
+}).strict();
 
 const statusSchema = z.object({
   status: z.enum(orderStatuses),
@@ -47,12 +64,21 @@ const paymentSchema = z.object({
   cashTenderedMinorUnits: z.number().int().min(0).max(maxInteger),
 });
 
+const loginSchema = z.object({
+  role: z.enum(staffRoles),
+  pin: z.string().min(1).max(128),
+}).strict();
+
 function parseOrThrow<T>(schema: z.ZodType<T>, value: unknown): T {
   const parsed = schema.safeParse(value);
   if (!parsed.success) {
     throw new HttpError(400, parsed.error.issues[0]?.message ?? "Invalid request.");
   }
   return parsed.data;
+}
+
+export function parseCustomerOrderInput(value: unknown) {
+  return parseOrThrow(orderInputSchema, value);
 }
 
 function orderLinesForComparison(
@@ -136,6 +162,32 @@ async function fetchMenuLines(
 
 export function createApiRouter(prisma: PrismaClient, events: RealtimeEvents) {
   const router = Router();
+  const authConfig = readStaffAuthConfig();
+  const timeZone = restaurantTimeZone();
+
+  router.post("/auth/login", (request, response) => {
+    const input = parseOrThrow(loginSchema, request.body);
+    if (!pinMatches(input.pin, authConfig.pins[input.role])) {
+      throw new HttpError(401, "Invalid staff PIN.");
+    }
+    const token = createStaffSessionToken(input.role, authConfig);
+    response.cookie(staffSessionCookie, token, staffSessionCookieOptions(authConfig));
+    response.json({ role: input.role });
+  });
+
+  router.get("/auth/session", (request, response) => {
+    const session = getStaffSession(request, authConfig);
+    if (!session) throw new HttpError(401, "Staff sign-in is required.");
+    response.json({
+      role: session.role,
+      expiresAt: session.expiresAt.toISOString(),
+    });
+  });
+
+  router.post("/auth/logout", (_request, response) => {
+    response.clearCookie(staffSessionCookie, staffSessionCookieOptions(authConfig));
+    response.status(204).end();
+  });
 
   router.get("/menu", async (request, response) => {
     const includeUnavailable = request.query.includeUnavailable === "true";
@@ -158,6 +210,7 @@ export function createApiRouter(prisma: PrismaClient, events: RealtimeEvents) {
   });
 
   router.patch("/menu/items/:id/availability", async (request, response) => {
+    requireStaffRole(request, authConfig, "ADMIN");
     const rawId = request.params.id;
     const body = parseOrThrow(
       z.object({ isAvailable: z.boolean() }),
@@ -183,25 +236,32 @@ export function createApiRouter(prisma: PrismaClient, events: RealtimeEvents) {
     response.json(item);
   });
 
-  router.get("/orders", async (request, response) => {
-    const active = request.query.active === "true";
+  router.get("/orders/waiter-board", async (request, response) => {
+    requireStaffRole(request, authConfig, "WAITER");
     const orders = await prisma.order.findMany({
-      where: active
-        ? {
-            OR: [
-              { status: { in: ["ACCEPTED", "PREPARING"] } },
-              { status: "READY", paymentStatus: "UNPAID" },
-            ],
-          }
-        : undefined,
-      orderBy: { createdAt: "desc" },
+      orderBy: { createdAt: "asc" },
       include: orderInclude,
     });
-    response.json(orders);
+    response.json(createWaiterOrderBoard(
+      orders,
+      startOfRestaurantBusinessDay(new Date(), timeZone),
+    ));
+  });
+
+  router.get("/orders/kds-board", async (request, response) => {
+    requireStaffRole(request, authConfig, "KITCHEN");
+    const orders = await prisma.order.findMany({
+      orderBy: { createdAt: "asc" },
+      include: orderInclude,
+    });
+    response.json(createKdsOrderBoard(
+      orders,
+      startOfRestaurantBusinessDay(new Date(), timeZone),
+    ));
   });
 
   router.post("/orders", async (request, response) => {
-    const input = parseOrThrow(orderInputSchema, request.body);
+    const input = parseCustomerOrderInput(request.body);
     const existing = await prisma.order.findUnique({
       where: { id: input.id },
       include: orderInclude,
@@ -266,6 +326,7 @@ export function createApiRouter(prisma: PrismaClient, events: RealtimeEvents) {
   });
 
   router.patch("/orders/:id/items", async (request, response) => {
+    requireStaffRole(request, authConfig, "WAITER");
     const input = parseOrThrow(updateItemsSchema, request.body);
     const orderId = parseOrThrow(orderIdSchema, request.params.id);
     const order = await prisma.order.findUnique({
@@ -293,16 +354,30 @@ export function createApiRouter(prisma: PrismaClient, events: RealtimeEvents) {
         include: orderInclude,
       });
     });
+    events.emit("orders:changed");
     response.json(updated);
   });
 
   router.patch("/orders/:id/status", async (request, response) => {
+    const session = requireStaffRole(request, authConfig, "WAITER", "KITCHEN");
     const input = parseOrThrow(statusSchema, request.body);
     const orderId = parseOrThrow(orderIdSchema, request.params.id);
     const current = await prisma.order.findUnique({
       where: { id: orderId },
     });
     if (!current) throw new HttpError(404, "Order not found.");
+    const waiterTransition =
+      current.status === "PENDING_REVIEW" &&
+      (input.status === "ACCEPTED" || input.status === "CANCELLED");
+    const kitchenTransition =
+      (current.status === "ACCEPTED" && input.status === "PREPARING") ||
+      (current.status === "PREPARING" && input.status === "READY");
+    if (
+      (session.role === "WAITER" && !waiterTransition) ||
+      (session.role === "KITCHEN" && !kitchenTransition)
+    ) {
+      throw new HttpError(403, "Your staff role is not permitted to make this status change.");
+    }
     if (
       !canTransitionOrder(
         current.status as OrderStatus,
@@ -316,7 +391,12 @@ export function createApiRouter(prisma: PrismaClient, events: RealtimeEvents) {
     }
     const changed = await prisma.order.updateMany({
       where: { id: current.id, status: current.status },
-      data: { status: input.status },
+      data: {
+        status: input.status,
+        ...(current.status === "PENDING_REVIEW" && input.status === "ACCEPTED"
+          ? { approvedAt: new Date() }
+          : {}),
+      },
     });
     if (changed.count !== 1) {
       throw new HttpError(409, "The order changed; refresh and try again.");
@@ -330,6 +410,7 @@ export function createApiRouter(prisma: PrismaClient, events: RealtimeEvents) {
   });
 
   router.post("/orders/:id/payment", async (request, response) => {
+    requireStaffRole(request, authConfig, "WAITER");
     const input = parseOrThrow(paymentSchema, request.body);
     const orderId = parseOrThrow(orderIdSchema, request.params.id);
     const current = await prisma.order.findUnique({
@@ -378,6 +459,7 @@ export function createApiRouter(prisma: PrismaClient, events: RealtimeEvents) {
   });
 
   router.get("/reports/daily", async (request, response) => {
+    requireStaffRole(request, authConfig, "ADMIN");
     const dateQuery = request.query.date;
     if (dateQuery !== undefined && typeof dateQuery !== "string") {
       throw new HttpError(400, "Date must use YYYY-MM-DD format.");

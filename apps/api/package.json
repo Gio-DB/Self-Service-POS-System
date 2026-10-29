@@ -6,7 +6,7 @@
     "dev": "dotenv -e ../../.env -- tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "tsx --test src/order-rules.test.ts",
+    "test": "tsx --test src/*.test.ts",
     "db:generate": "dotenv -e ../../.env -- prisma generate",
     "db:migrate": "dotenv -e ../../.env -- prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts"

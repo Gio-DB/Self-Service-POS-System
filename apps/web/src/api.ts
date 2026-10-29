@@ -34,13 +34,46 @@ export type Order = {
   cashTenderedMinorUnits: number | null;
   changeDueMinorUnits: number | null;
   createdAt: string;
+  approvedAt: string | null;
   paidAt: string | null;
   items: OrderItem[];
 };
 
+export type StaffRole = "WAITER" | "KITCHEN" | "ADMIN";
+
+export type StaffSession = {
+  role: StaffRole;
+  expiresAt: string;
+};
+
+export type WaiterOrderBoard = {
+  awaitingReview: Order[];
+  active: Order[];
+  paid: Order[];
+  archive: Order[];
+};
+
+export type KdsOrderBoard = {
+  approved: Order[];
+  preparing: Order[];
+  completed: Order[];
+  archive: Order[];
+};
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${apiBase}${path}`, {
     ...init,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
       ...init?.headers,
@@ -50,8 +83,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const body = (await response.json().catch(() => null)) as
       | { error?: string }
       | null;
-    throw new Error(body?.error ?? `Request failed (${response.status}).`);
+    throw new ApiError(
+      body?.error ?? `Request failed (${response.status}).`,
+      response.status,
+    );
   }
+  if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
 
@@ -60,13 +97,13 @@ export const api = {
     request<MenuCategory[]>(
       `/api/menu${includeUnavailable ? "?includeUnavailable=true" : ""}`,
     ),
-  getOrders: (active = false) =>
-    request<Order[]>(`/api/orders${active ? "?active=true" : ""}`),
+  getWaiterOrderBoard: () => request<WaiterOrderBoard>("/api/orders/waiter-board"),
+  getKdsOrderBoard: () => request<KdsOrderBoard>("/api/orders/kds-board"),
   createOrder: (body: {
     id: string;
     orderType: "TAKEAWAY" | "DINE_IN";
     tableNumber: string | null;
-    items: { menuItemId: number; quantity: number; notes: string | null }[];
+    items: { menuItemId: number; quantity: number }[];
   }) =>
     request<Order>("/api/orders", {
       method: "POST",
@@ -101,6 +138,13 @@ export const api = {
       paidOrderCount: number;
       totalMinorUnits: number;
     }>(`/api/reports/daily?date=${encodeURIComponent(date)}`),
+  login: (role: StaffRole, pin: string) =>
+    request<{ role: StaffRole }>("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ role, pin }),
+    }),
+  getSession: () => request<StaffSession>("/api/auth/session"),
+  logout: () => request<void>("/api/auth/logout", { method: "POST" }),
 };
 
 export const socketUrl = apiBase;

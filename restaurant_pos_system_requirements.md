@@ -4,7 +4,7 @@
 | Document control | Value |
 |---|---|
 | Status | Draft for stakeholder review |
-| Version | 0.1 |
+| Version | 0.2 |
 | System | Restaurant Self-Service POS System |
 | Source baseline | `restaurant_pos_project_plan_en.md` |
 | Requirements approach | Traceable and verifiable; structured using systems-engineering practices informed by ISO/IEC/IEEE 15288 |
@@ -64,7 +64,7 @@ Payment-provider services, mobile card readers, customer-facing online ordering,
 ### 5.1 Normal order flow
 
 1. The kiosk obtains the current menu from the API or its permitted local cache.
-2. The customer selects items, configured options, and takeaway or dine-in.
+2. The customer selects menu items and takeaway or dine-in details; item modifications are added only by a waiter during review.
 3. The kiosk submits the order. The server stores it with a unique ID and a review-required status.
 4. A waiter reviews and, if necessary, edits the order before approving it.
 5. After approval, the KDS receives and displays the order.
@@ -155,7 +155,7 @@ The basis references in the requirements tables point to stakeholder needs (SN-x
 | SYS-F-002 | The system shall assign each newly created order a unique identifier before its first submission attempt. | T: Two distinct orders receive different IDs; a retry of one order reuses its original ID. | SN-01, SN-05; SP-3, SP-7 |
 | SYS-F-003 | The system shall store the submitted order and all its order lines atomically. | T: Force a storage failure during submission; no partial order or orphan order line remains. | SN-02, SN-05; SP-7 |
 | SYS-F-004 | The system shall place a server-received kiosk order in a review-required state until a waiter approves or cancels it. | T: Create an order and inspect status; it is not sent to the KDS before approval. | SN-02, SN-03; SP-5 |
-| SYS-F-005 | The system shall allow an authorized waiter to inspect and edit a review-required order before approving it. | D: Edit an order as waiter; verify saved content reflects the edit before approval. | SN-02; SP-5, SP-6 |
+| SYS-F-005 | The system shall allow only an authorized waiter to change quantities and add, change, or remove per-item modification notes on a review-required order before approving it. | T/D: Edit an order as waiter and verify saved quantities and notes. Attempt the same change as a customer, kitchen user, or administrator; each attempt is denied. | SN-02, SN-05; SP-5, SP-6 |
 | SYS-F-006 | The system shall send an order to the KDS only after the waiter approves it. | T: Observe the KDS before and after approval; the order appears only after approval. | SN-02, SN-03; SP-5 |
 | SYS-F-007 | The system shall allow authorized staff to create a manual order as a fallback to kiosk entry. | D: Create a manual order and verify it appears in the staff order list with its items and type. | SN-02; SP-4 |
 | SYS-F-008 | The system shall allow authorized staff to cancel an order and record the cancellation status. | T: Cancel an eligible order; verify its status and that it is not presented as an active order. | SN-02; SP-6 |
@@ -165,6 +165,9 @@ The basis references in the requirements tables point to stakeholder needs (SN-x
 | SYS-F-012 | The system shall allow an administrator to enable and disable out-of-order mode. | D: Toggle the mode as an authorized administrator and verify the active state is shown. | SN-04; SP-1, SP-4 |
 | SYS-F-013 | The system shall record the cash tendered and calculate and display the change due when a waiter records a cash payment. | T: Use known order totals and tender amounts; the recorded tender and displayed change match the inputs and calculation, and insufficient tender is rejected. | SN-02; SP-4 |
 | SYS-F-014 | The waiter shall enter cash tendered using an on-screen numeric keypad opened from the cash-payment action. | D/T: Open cash entry for a ready, unpaid order; enter digits and a decimal amount; verify the displayed amount and payment use the same value. Verify clear, backspace, cancel, and invalid/insufficient tender behavior. | SN-02; SP-4 |
+| SYS-F-015 | The waiter interface shall display orders in sorted Awaiting review, Active orders, Paid orders, and Archive sections. | T: Create current-day and prior-day orders in each relevant state. Verify current pending, unpaid active, and paid orders are in the named sections; prior-day orders are in Archive; each section uses its specified ordering. | SN-02; SP-5, SP-6 |
+
+For SYS-F-015, the configured restaurant timezone determines the current business day. Orders created before that day start are in Archive regardless of later status or payment. Current-day pending orders are Awaiting review; current-day unpaid accepted, preparing, and ready orders are Active; and current-day paid orders are Paid. Awaiting review and Active are oldest first, Paid is newest paid first, and Archive is newest created first. Current-day cancelled orders are not shown.
 
 ### 8.2 Menu and kiosk
 
@@ -180,7 +183,7 @@ The basis references in the requirements tables point to stakeholder needs (SN-x
 | KSK-F-008 | The kiosk shall display the total calculated from the selected item prices and configured options before submission. | T: Compare displayed total with an independent calculation using configured price data. | SN-01; SP-4 |
 | KSK-F-009 | The kiosk shall display configured item images when image data is provided. | I/D: Configure an image for a menu item and verify it is displayed; verify an item without an image remains usable. | SN-01; SP-4 |
 | KSK-F-010 | The kiosk shall provide a way to return to a clean ordering state after an order is submitted or abandoned. | D: Complete or abandon an order and verify the next customer cannot see or modify the prior cart. | SN-01, SN-05; SP-4 |
-| KSK-F-011 | The kiosk shall allow the customer to enter a free-text note for an order line. | D: Enter a note for an item and verify it is attached to the correct order line after submission. | SN-01; SP-4, SP-7 |
+| KSK-F-011 | The kiosk shall not offer or submit per-item modification notes; only a waiter may record such notes during review. | T/I: Inspect the kiosk and submit a request containing an item note; the kiosk offers no note field and the server rejects the supplied note. | SN-01, SN-02, SN-05; SP-4, SP-7 |
 | KSK-F-012 | Before submitting an order, the kiosk shall display a confirmation dialog summarizing the order type, table number when supplied, items, quantities, and total; the customer shall be able to confirm submission or return to edit the order. | D/T: Select items and an order type; verify the summary matches the basket. Confirm and verify exactly one order is submitted. Return to editing and verify the basket and table number remain unchanged and no order is submitted. | SN-01; SP-4, SP-5 |
 
 The source plan mentions modifiers and allergen filters, but does not define modifier pricing, allergen data ownership, or cross-contamination semantics. These functions are subject to TBD-06 and TBD-07 and are not represented as accepted MVP capabilities in this draft.
@@ -198,13 +201,16 @@ The source plan mentions modifiers and allergen filters, but does not define mod
 | KDS-F-001 | The KDS shall display orders approved by a waiter and not display unapproved kiosk orders as kitchen work. | T: Compare KDS contents before and after approval. | SN-03; SP-4, SP-5 |
 | KDS-F-002 | The KDS shall show each active order's identifier, arrival time, order type, items, quantities, and item notes. | I/T: Create an order with known values and verify each value is visible. | SN-03; SP-4, SP-7 |
 | KDS-F-003 | The KDS shall display the table number when one is supplied for a dine-in order. | T: Submit dine-in orders with and without a table number; display the value when provided. | SN-03; SP-4 |
-| KDS-F-004 | The KDS shall order its active-order list by the time the server accepted each order, earliest first. | T: Submit orders in a known sequence and verify ordering. | SN-03; SP-4 |
+| KDS-F-004 | The KDS shall order each current-day operational section by the time the server accepted the order, earliest first. | T: Submit orders in a known sequence and verify ordering within Approved orders, Preparing, and Completed. | SN-03; SP-4 |
 | KDS-F-005 | The KDS shall allow kitchen staff to update an order to preparing and ready. | D: Update an order through both states; verify each state is stored and displayed. | SN-03; SP-4, SP-5 |
 | KDS-F-006 | The system shall make a kitchen status update visible to connected staff clients after the server accepts the update. | T: Change status on one client and verify a second connected client receives the new status. | SN-02, SN-03; SP-3, SP-5 |
 | KDS-F-007 | The KDS shall provide an audible indication when a newly approved order is received, subject to the display device supporting audio. | D: Approve an order while the KDS is active and verify the configured alert is produced. | SN-03; SP-4 |
 | KDS-F-008 | The KDS shall allow the user to filter orders by configured kitchen station when station assignments are configured. | T: Configure orders for two stations and verify each filter result. | SN-03; SP-4 |
 | KDS-F-009 | The KDS shall render order-line notes in red and distinguish them from item names and quantities using a non-color visual cue. | I/D: View an order containing a note and verify red text and an additional visual distinction from the item name and quantity. | SN-03; SP-4 |
 | KDS-F-010 | The KDS shall present all active approved orders in one continuous queue without pagination, allowing scrolling when the queue exceeds the viewport. | T: Load more active orders than fit on the screen; verify every order is reachable in the same KDS view without a page control, and each ticket's information is not clipped. | SN-03; SP-4 |
+| KDS-F-011 | The KDS shall display approved kitchen orders in sorted Approved orders, Preparing, Completed, and Archive sections. | T: Create current-day orders in each kitchen state and older approved orders. Verify the current orders appear in their matching section, older approved orders appear in Archive, and unapproved/cancelled orders are absent. | SN-03; SP-4, SP-5 |
+
+For KDS-F-011, Approved orders, Preparing, and Completed correspond respectively to the accepted, preparing, and ready lifecycle statuses. Current-day operational sections are oldest approved first; Archive is newest created first. An archived accepted or preparing order remains actionable so work is not stranded at the business-day boundary.
 
 ### 8.5 Staff, administration, and authorization
 
@@ -219,7 +225,7 @@ The source plan mentions modifiers and allergen filters, but does not define mod
 | ADM-F-007 | The system shall identify its current operating mode to staff and prevent customers from starting an order while out-of-order mode is active. | T: Enable the mode and attempt kiosk ordering; ordering is blocked and staff can see the mode. | SN-01, SN-04; SP-1, SP-4 |
 | ADM-F-008 | The system shall expose a health-check endpoint that reports whether the API can serve requests and reach its required database. | T: Call `GET /health` in healthy and database-unavailable conditions; response distinguishes the conditions. | SN-05, SN-06; SP-6 |
 
-Authentication method, credential policy, account recovery, and session lifetime are TBD-04. Requirements above define authorization outcomes, not a particular authentication technology.
+The current demo baseline uses configured shared role PINs with signed, HTTP-only sessions that expire after eight hours by default. A shared PIN establishes the role, not an individual staff identity; individual-account lifecycle, recovery, and attributable audit logging remain deferred in TBD-04.
 
 ### 8.6 Platform and network
 
@@ -234,7 +240,7 @@ The Ubuntu release/edition and Wi-Fi credentials, security mode, and network con
 
 | ID | Requirement | Verification / pass condition | Trace |
 |---|---|---|---|
-| IF-001 | The system shall expose REST operations for menu retrieval, menu administration, order creation, order status changes, cash-payment recording, and daily reporting. | T: Exercise each documented operation and verify the specified success response and resulting state. | SN-02, SN-04; SP-7 |
+| IF-001 | The system shall expose REST operations for menu retrieval, menu administration, customer order creation, staff-session management, role-specific order-board retrieval, order status changes, waiter order edits, cash-payment recording, and daily reporting. | T: Exercise each documented operation and verify the specified success response and resulting state. | SN-02, SN-04; SP-7 |
 | IF-002 | The system shall publish a KDS WebSocket update when a waiter approves an order and when an order status changes. | T: Observe the KDS connection for the two events and verify event data matches server state. | SN-03; SP-3, SP-7 |
 | IF-003 | The system shall store each order and its order lines in one database transaction. | T: Cause a transaction failure and verify the order and all its lines are either committed together or not committed. | SN-05; SP-7 |
 | IF-004 | The system shall retain the item name and unit price charged on each order line as order-time snapshots. | T: Change a menu item's name and price after an order; verify the historical order values do not change. | SN-02, SN-05; SP-7 |
@@ -266,7 +272,7 @@ TBD-05 defines the operating currency and tax/rounding rules. IF-006 requires re
 
 | ID | Requirement | Verification / pass condition | Trace |
 |---|---|---|---|
-| SEC-001 | The system shall require a staff identity to be authenticated before granting access to staff-only functions. | T: Attempt staff access without authentication and with a valid test account; unauthenticated access is denied. | SN-02, SN-03, SN-04; SP-6 |
+| SEC-001 | The system shall require a configured staff-role credential before granting access to staff-only functions. | T: Attempt staff access without authentication and with each valid shared role PIN; unauthenticated access is denied and each successful session has only its configured role. | SN-02, SN-03, SN-04; SP-6 |
 | SEC-002 | The system shall enforce the role-specific permissions defined in ADM-F-003 through ADM-F-006 on the server, not only in the user interface. | T: Send direct API requests as each test role; unauthorized operations are rejected and do not change data. | SN-05; SP-6 |
 | SEC-003 | The system shall not expose customer order data or staff functions through an internet-facing endpoint during normal operation. | I/T: Inspect deployment/network configuration and test from an external network under normal mode; no such access is available. | SN-05, SN-06; SP-1, SP-6 |
 | SEC-004 | The system shall permit remote support access only when the authorized maintenance/out-of-order procedure is active. | T/I: Test support access before, during, and after activation; access is unavailable outside the active procedure. Exact control mechanism is TBD-10. | SN-05, SN-06; SP-1, SP-6 |
@@ -277,6 +283,8 @@ TBD-05 defines the operating currency and tax/rounding rules. IF-006 requires re
 
 The security requirements establish minimum access behavior; they do not prescribe a security standard, encryption policy, vulnerability-management process, or retention period. These require stakeholder decisions in Section 12.
 
+The shared role-PIN baseline does not satisfy the individual staff-identity attribution in SEC-005; that requirement remains a deferred production capability under TBD-04.
+
 ## 12. Open decisions and TBD register
 
 Each TBD must be assigned to an owner, resolved, and approved before the affected requirements are baselined. Where a TBD blocks safe operation or acceptance, the affected capability must not be declared accepted until resolved.
@@ -286,7 +294,7 @@ Each TBD must be assigned to an owner, resolved, and approved before the affecte
 | TBD-01 | Confirm the waiter-review/approval flow and whether every kiosk order requires approval. | A-01; SYS-F-004 to SYS-F-006; KDS-F-001 | Restaurant owner / operations |
 | TBD-02 | Confirm payment timing and whether MVP supports cash only; define tender/change recording, refunds/voids, and required payment-history fields. | A-02; SYS-F-010, SYS-F-013; payment status API and schema | Restaurant owner / finance |
 | TBD-03 | Set acceptable menu update propagation latency and behavior when the kiosk has a stale cached menu. | KSK-F-007; QLT-P-002 | Product owner / operations |
-| TBD-04 | Choose authentication method, credential lifecycle, account recovery, session expiry, and initial admin provisioning. | ADM-F-003 to ADM-F-006; SEC-001, SEC-002 | Product owner / security lead |
+| TBD-04 | Replace the shared role-PIN demo baseline with individual-account lifecycle, account recovery, credential policy, and attributable audit logging. | ADM-F-003 to ADM-F-006; SEC-001, SEC-002, SEC-005 | Product owner / security lead |
 | TBD-05 | Select operating currency, tax inclusion/calculation rules, rounding rules, and price display format. | KSK-F-008; IF-005, IF-006, IF-008; SYS-F-011 | Restaurant owner / finance |
 | TBD-06 | Decide whether configurable modifiers are in MVP; define modifier choices, price impacts, selection limits, and historical capture. | KSK-F-003, KSK-F-008; order schema | Product owner / menu owner |
 | TBD-07 | Decide whether allergen filtering is in MVP; define authoritative allergen data, filter behavior, warnings, and cross-contamination wording. | KSK menu requirements; menu schema and UI | Restaurant owner / food-safety lead |

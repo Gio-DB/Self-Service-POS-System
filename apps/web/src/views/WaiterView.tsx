@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, MAX_ORDER_ITEM_QUANTITY, type Order } from "../api.js";
 import {
   applyCashKey,
@@ -6,20 +6,42 @@ import {
   parseCashAmount,
 } from "../cash-entry.js";
 import { Dialog } from "../components/Dialog.js";
+import { StaffGate } from "../components/StaffGate.js";
 import { formatMoney, formatTime } from "../format.js";
 
+type EditLine = {
+  id: number;
+  menuItemId: number;
+  itemName: string;
+  unitPriceMinorUnits: number;
+  quantity: number;
+  notes: string;
+};
+
 export function WaiterView() {
-  const [orders, setOrders] = useState<Order[]>([]);
+  return <StaffGate role="WAITER"><WaiterContent /></StaffGate>;
+}
+
+function WaiterContent() {
+  const [board, setBoard] = useState({
+    awaitingReview: [] as Order[],
+    active: [] as Order[],
+    paid: [] as Order[],
+    archive: [] as Order[],
+  });
   const [cashOrder, setCashOrder] = useState<Order | null>(null);
   const [cashAmount, setCashAmount] = useState("");
   const [cashDialogError, setCashDialogError] = useState("");
   const [paying, setPaying] = useState(false);
+  const [editOrder, setEditOrder] = useState<Order | null>(null);
+  const [editLines, setEditLines] = useState<EditLine[]>([]);
+  const [savingEdit, setSavingEdit] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
   const refresh = useCallback(async () => {
     try {
-      setOrders(await api.getOrders());
+      setBoard(await api.getWaiterOrderBoard());
       setError("");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not load orders.");
@@ -44,36 +66,74 @@ export function WaiterView() {
     }
   }
 
-  async function changeQuantity(order: Order, itemIndex: number, change: number) {
+  function openEditor(order: Order) {
+    const editableLines = order.items.flatMap((item) => item.menuItemId === null ? [] : [{
+      id: item.id,
+      menuItemId: item.menuItemId,
+      itemName: item.itemName,
+      unitPriceMinorUnits: item.unitPriceMinorUnits,
+      quantity: item.quantity,
+      notes: item.notes ?? "",
+    }]);
+    if (editableLines.length !== order.items.length) {
+      setError("This order contains a historical menu item and cannot be edited.");
+      return;
+    }
+    setEditOrder(order);
+    setEditLines(editableLines);
+    setError("");
+    setNotice("");
+  }
+
+  function changeEditQuantity(lineId: number, change: number) {
+    setEditLines((current) => current.flatMap((line) => {
+      if (line.id !== lineId) return [line];
+      const quantity = line.quantity + change;
+      if (quantity < 1) return [];
+      if (quantity > MAX_ORDER_ITEM_QUANTITY) return [line];
+      return [{ ...line, quantity }];
+    }));
+  }
+
+  function changeEditNote(lineId: number, notes: string) {
+    setEditLines((current) => current.map((line) => (
+      line.id === lineId ? { ...line, notes } : line
+    )));
+  }
+
+  const editedTotal = useMemo(
+    () => editLines.reduce(
+      (sum, line) => sum + line.unitPriceMinorUnits * line.quantity,
+      0,
+    ),
+    [editLines],
+  );
+
+  async function saveOrderEdits() {
+    if (!editOrder || savingEdit) return;
+    if (!editLines.length) {
+      setError("An order must contain at least one item.");
+      return;
+    }
+    setSavingEdit(true);
     setError("");
     try {
-      const currentItem = order.items[itemIndex];
-      if (!currentItem?.menuItemId) return;
-      if (change > 0 && currentItem.quantity >= MAX_ORDER_ITEM_QUANTITY) {
-        setError(`Maximum ${MAX_ORDER_ITEM_QUANTITY} of each item per order.`);
-        return;
-      }
-      const nextItems = order.items.flatMap((item) => {
-        if (item.menuItemId === null) return [];
-        const quantity =
-          item.id === currentItem.id ? item.quantity + change : item.quantity;
-        if (quantity < 1) return [];
-        return [
-          {
-            menuItemId: item.menuItemId,
-            quantity,
-            notes: item.notes,
-          },
-        ];
-      });
-      if (!nextItems.length) {
-        setError("An order must contain at least one item.");
-        return;
-      }
-      await api.updateItems(order.id, nextItems);
+      await api.updateItems(
+        editOrder.id,
+        editLines.map((line) => ({
+          menuItemId: line.menuItemId,
+          quantity: line.quantity,
+          notes: line.notes.trim() || null,
+        })),
+      );
+      setEditOrder(null);
+      setEditLines([]);
+      setNotice(`Order ${editOrder.id.slice(0, 8)} saved.`);
       await refresh();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not edit order.");
+    } finally {
+      setSavingEdit(false);
     }
   }
 
@@ -135,175 +195,172 @@ export function WaiterView() {
     setCashDialogError("");
   }
 
-  const pending = orders.filter((order) => order.status === "PENDING_REVIEW");
-  const active = orders.filter(
-    (order) => order.status !== "PENDING_REVIEW" && order.status !== "CANCELLED",
-  );
-
   return (
     <section className="page">
       <div className="page-heading">
         <div>
           <p className="eyebrow">FRONT OF HOUSE</p>
           <h1>Waiter station</h1>
-          <p className="muted">Review kiosk orders, approve the kitchen handoff, and record cash payments.</p>
+          <p className="muted">Review and modify customer orders before the kitchen handoff, then record cash payments.</p>
         </div>
         <button className="secondary-button" onClick={() => void refresh()}>Refresh</button>
       </div>
-      {error && <div className="notice error">{error}</div>}
+      {error && <div className="notice error" role="alert">{error}</div>}
       {notice && <div className="notice success">{notice}</div>}
 
-      <section className="work-section">
-        <div className="section-heading">
-          <div><p className="eyebrow">ACTION REQUIRED</p><h2>Awaiting review</h2></div>
-          <span className="count-pill">{pending.length}</span>
-        </div>
-        {pending.length === 0 ? (
-          <div className="empty-state">No orders are waiting for review.</div>
-        ) : (
-          <div className="order-grid">
-            {pending.map((order) => (
-              <article className="order-card" key={order.id}>
-                <OrderSummary order={order} />
-                <div className="order-edit">
-                  <span className="eyebrow">EDIT QUANTITIES</span>
-                  {order.items.map((item, index) => (
-                    <div className="edit-line" key={item.id}>
-                      <span>{item.itemName}</span>
-                      <div className="quantity-control compact">
-                        <button aria-label={`Remove one ${item.itemName}`} onClick={() => void changeQuantity(order, index, -1)}>−</button>
-                        <span>{item.quantity}</span>
-                        <button
-                          aria-label={`Add one ${item.itemName}`}
-                          disabled={item.quantity >= MAX_ORDER_ITEM_QUANTITY}
-                          title={
-                            item.quantity >= MAX_ORDER_ITEM_QUANTITY
-                              ? `Maximum ${MAX_ORDER_ITEM_QUANTITY} per order`
-                              : undefined
-                          }
-                          onClick={() => void changeQuantity(order, index, 1)}
-                        >
-                          +
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <div className="button-row">
-                  <button className="secondary-button" onClick={() => void changeStatus(order, "CANCELLED")}>Cancel</button>
-                  <button className="primary-button" onClick={() => void changeStatus(order, "ACCEPTED")}>Approve order</button>
-                </div>
-              </article>
-            ))}
-          </div>
+      <BoardSection
+        eyebrow="ACTION REQUIRED"
+        title="Awaiting review"
+        orders={board.awaitingReview}
+        empty="No orders are waiting for review."
+      >
+        {(order) => (
+          <article className="order-card" key={order.id}>
+            <OrderSummary order={order} />
+            <div className="button-row">
+              <button className="secondary-button" onClick={() => openEditor(order)}>Modify order</button>
+              <button className="secondary-button" onClick={() => void changeStatus(order, "CANCELLED")}>Cancel</button>
+              <button className="primary-button" onClick={() => void changeStatus(order, "ACCEPTED")}>Approve order</button>
+            </div>
+          </article>
         )}
-      </section>
+      </BoardSection>
 
-      <section className="work-section">
-        <div className="section-heading">
-          <div><p className="eyebrow">IN PROGRESS</p><h2>Active orders</h2></div>
-          <span className="count-pill">{active.length}</span>
-        </div>
-        {active.length === 0 ? (
-          <div className="empty-state">Approved orders will appear here.</div>
-        ) : (
-          <div className="order-grid">
-            {active.map((order) => (
-              <article className="order-card" key={order.id}>
-                <OrderSummary order={order} />
-                {order.status === "READY" && order.paymentStatus === "UNPAID" && (
-                  <div className="payment-box">
-                    <button
-                      className="primary-button full-width"
-                      onClick={() => openCashKeypad(order)}
-                    >
-                      Enter cash received
-                    </button>
-                  </div>
-                )}
-                {order.paymentStatus === "PAID" && (
-                  <p className="paid-note">Paid · change {formatMoney(order.changeDueMinorUnits ?? 0)}</p>
-                )}
-              </article>
+      <BoardSection
+        eyebrow="IN PROGRESS"
+        title="Active orders"
+        orders={board.active}
+        empty="Approved unpaid orders will appear here."
+      >
+        {(order) => (
+          <article className="order-card" key={order.id}>
+            <OrderSummary order={order} />
+            {order.status === "READY" && order.paymentStatus === "UNPAID" && (
+              <div className="payment-box">
+                <button className="primary-button full-width" onClick={() => openCashKeypad(order)}>
+                  Enter cash received
+                </button>
+              </div>
+            )}
+          </article>
+        )}
+      </BoardSection>
+
+      <BoardSection
+        eyebrow="TODAY"
+        title="Paid orders"
+        orders={board.paid}
+        empty="No orders have been paid today."
+      >
+        {(order) => (
+          <article className="order-card" key={order.id}>
+            <OrderSummary order={order} />
+            <p className="paid-note">Paid · change {formatMoney(order.changeDueMinorUnits ?? 0)}</p>
+          </article>
+        )}
+      </BoardSection>
+
+      <BoardSection
+        eyebrow="HISTORY"
+        title="Archive"
+        orders={board.archive}
+        empty="No orders from previous days."
+      >
+        {(order) => <article className="order-card" key={order.id}><OrderSummary order={order} /></article>}
+      </BoardSection>
+
+      {editOrder && (
+        <Dialog
+          title={`Modify order ${editOrder.id.slice(0, 8)}`}
+          onClose={() => {
+            if (!savingEdit) {
+              setEditOrder(null);
+              setEditLines([]);
+            }
+          }}
+        >
+          <p className="dialog-intro">Add or remove quantities and record staff-only preparation notes for each item.</p>
+          <div className="order-editor-lines">
+            {editLines.map((line) => (
+              <div className="order-editor-line" key={line.id}>
+                <div className="order-editor-heading">
+                  <strong>{line.itemName}</strong>
+                  <span>{formatMoney(line.unitPriceMinorUnits * line.quantity)}</span>
+                </div>
+                <div className="quantity-control">
+                  <button type="button" aria-label={`Remove one ${line.itemName}`} onClick={() => changeEditQuantity(line.id, -1)}>−</button>
+                  <span>{line.quantity}</span>
+                  <button
+                    type="button"
+                    aria-label={`Add one ${line.itemName}`}
+                    disabled={line.quantity >= MAX_ORDER_ITEM_QUANTITY}
+                    onClick={() => changeEditQuantity(line.id, 1)}
+                  >
+                    +
+                  </button>
+                </div>
+                <label className="field-label">
+                  Modification note <span className="optional">(for example, extra cheese or no onions)</span>
+                  <input
+                    value={line.notes}
+                    onChange={(event) => changeEditNote(line.id, event.target.value)}
+                    maxLength={200}
+                    placeholder="No modification"
+                  />
+                </label>
+              </div>
             ))}
           </div>
-        )}
-      </section>
+          <div className="cash-order-total">
+            <span>Updated total</span>
+            <strong>{formatMoney(editedTotal)}</strong>
+          </div>
+          <div className="dialog-actions">
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={savingEdit}
+              onClick={() => {
+                setEditOrder(null);
+                setEditLines([]);
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="primary-button"
+              disabled={savingEdit || editLines.length === 0}
+              onClick={() => void saveOrderEdits()}
+            >
+              {savingEdit ? "Saving…" : "Save changes"}
+            </button>
+          </div>
+        </Dialog>
+      )}
+
       {cashOrder && (
         <Dialog title="Enter cash received" onClose={closeCashKeypad}>
           <div className="cash-order-total">
             <span>Order total</span>
             <strong>{formatMoney(cashOrder.totalMinorUnits)}</strong>
           </div>
-          <label className="cash-display-label" htmlFor="cash-amount">
-            Cash received
-          </label>
-          <output
-            id="cash-amount"
-            className="cash-display"
-            aria-live="polite"
-            aria-label={`Cash received ${cashAmount || "0"}`}
-          >
+          <label className="cash-display-label" htmlFor="cash-amount">Cash received</label>
+          <output id="cash-amount" className="cash-display" aria-live="polite" aria-label={`Cash received ${cashAmount || "0"}`}>
             {cashAmount || "0"}
           </output>
           <div className="cash-keypad" role="group" aria-label="Cash amount keypad">
             {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((digit) => (
-              <button
-                type="button"
-                className="keypad-button"
-                aria-label={`Digit ${digit}`}
-                key={digit}
-                onClick={() => pressCashKey(digit)}
-              >
-                {digit}
-              </button>
+              <button type="button" className="keypad-button" aria-label={`Digit ${digit}`} key={digit} onClick={() => pressCashKey(digit)}>{digit}</button>
             ))}
-            <button
-              type="button"
-              className="keypad-button keypad-utility"
-              onClick={() => pressCashKey("clear")}
-            >
-              Clear
-            </button>
-            <button
-              type="button"
-              className="keypad-button"
-              aria-label="Digit 0"
-              onClick={() => pressCashKey("0")}
-            >
-              0
-            </button>
-            <button
-              type="button"
-              className="keypad-button keypad-utility"
-              aria-label="Backspace"
-              onClick={() => pressCashKey("backspace")}
-            >
-              ⌫
-            </button>
-            <button
-              type="button"
-              className="keypad-button keypad-decimal"
-              aria-label="Decimal point"
-              onClick={() => pressCashKey(".")}
-            >
-              .
-            </button>
+            <button type="button" className="keypad-button keypad-utility" onClick={() => pressCashKey("clear")}>Clear</button>
+            <button type="button" className="keypad-button" aria-label="Digit 0" onClick={() => pressCashKey("0")}>0</button>
+            <button type="button" className="keypad-button keypad-utility" aria-label="Backspace" onClick={() => pressCashKey("backspace")}>⌫</button>
+            <button type="button" className="keypad-button keypad-decimal" aria-label="Decimal point" onClick={() => pressCashKey(".")}>.</button>
           </div>
-          {cashDialogError && (
-            <p className="notice error" role="alert">
-              {cashDialogError}
-            </p>
-          )}
+          {cashDialogError && <p className="notice error" role="alert">{cashDialogError}</p>}
           <div className="dialog-actions">
-            <button
-              type="button"
-              className="secondary-button"
-              disabled={paying}
-              onClick={closeCashKeypad}
-            >
-              Cancel
-            </button>
+            <button type="button" className="secondary-button" disabled={paying} onClick={closeCashKeypad}>Cancel</button>
             <button
               type="button"
               className="primary-button"
@@ -315,6 +372,30 @@ export function WaiterView() {
           </div>
         </Dialog>
       )}
+    </section>
+  );
+}
+
+function BoardSection({
+  eyebrow,
+  title,
+  orders,
+  empty,
+  children,
+}: {
+  eyebrow: string;
+  title: string;
+  orders: Order[];
+  empty: string;
+  children: (order: Order) => ReactNode;
+}) {
+  return (
+    <section className="work-section" aria-label={title}>
+      <div className="section-heading">
+        <div><p className="eyebrow">{eyebrow}</p><h2>{title}</h2></div>
+        <span className="count-pill">{orders.length}</span>
+      </div>
+      {orders.length === 0 ? <div className="empty-state">{empty}</div> : <div className="order-grid">{orders.map(children)}</div>}
     </section>
   );
 }
@@ -335,7 +416,7 @@ function OrderSummary({ order }: { order: Order }) {
           <div className="order-line" key={item.id}>
             <span><b>{item.quantity}×</b> {item.itemName}</span>
             <strong>{formatMoney(item.unitPriceMinorUnits * item.quantity)}</strong>
-            {item.notes && <span className="order-note">{item.notes}</span>}
+            {item.notes && <span className="order-note">Modification: {item.notes}</span>}
           </div>
         ))}
       </div>

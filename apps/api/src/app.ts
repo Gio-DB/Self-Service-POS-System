@@ -9,7 +9,7 @@ export function createApp(events: RealtimeEvents) {
   const app = express();
   const webOrigin = process.env.WEB_ORIGIN ?? "http://127.0.0.1:5173";
 
-  app.use(cors({ origin: webOrigin }));
+  app.use(cors({ origin: webOrigin, credentials: true }));
   app.use(express.json({ limit: "100kb" }));
 
   app.get("/health", async (_request, response) => {

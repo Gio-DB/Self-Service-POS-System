@@ -1,12 +1,17 @@
 import { useEffect, useState } from "react";
 import { api, type MenuCategory } from "../api.js";
 import { formatMoney } from "../format.js";
+import { StaffGate } from "../components/StaffGate.js";
 
 function todayUtc() {
   return new Date().toISOString().slice(0, 10);
 }
 
 export function AdminView() {
+  return <StaffGate role="ADMIN"><AdminContent /></StaffGate>;
+}
+
+function AdminContent() {
   const [categories, setCategories] = useState<MenuCategory[]>([]);
   const [date, setDate] = useState(todayUtc());
   const [report, setReport] = useState<{

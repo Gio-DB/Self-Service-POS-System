@@ -1,1 +1,1 @@
-{"root":["./src/api.ts","./src/cash-entry.ts","./src/format.ts","./src/main.tsx","./src/components/dialog.tsx","./src/views/adminview.tsx","./src/views/app.tsx","./src/views/kdsview.tsx","./src/views/kioskview.tsx","./src/views/waiterview.tsx"],"version":"5.9.3"}
+{"root":["./src/api.ts","./src/cash-entry.ts","./src/format.ts","./src/main.tsx","./src/components/dialog.tsx","./src/components/staffgate.tsx","./src/views/adminview.tsx","./src/views/app.tsx","./src/views/kdsview.tsx","./src/views/kioskview.tsx","./src/views/waiterview.tsx"],"version":"5.9.3"}

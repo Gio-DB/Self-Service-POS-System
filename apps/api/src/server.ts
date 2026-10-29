@@ -14,7 +14,7 @@ const events = {
 const app = createApp(events);
 const httpServer = createServer(app);
 io = new SocketServer(httpServer, {
-  cors: { origin: webOrigin },
+  cors: { origin: webOrigin, credentials: true },
 });
 
 httpServer.listen(port, "127.0.0.1", () => {

@@ -96,7 +96,6 @@ export function KioskView() {
         items: cartItems.map((item) => ({
           menuItemId: item.id,
           quantity: quantities[item.id] ?? 0,
-          notes: null,
         })),
       });
       setMessage(`Order ${order.id.slice(0, 8)} sent for waiter review.`);

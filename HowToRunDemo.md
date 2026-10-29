@@ -26,6 +26,8 @@ cp .env.example .env
 
 If you already have a `.env` file, keep it and check that its `DATABASE_URL` points to your local PostgreSQL database.
 
+The example file also configures Europe/Berlin as the business timezone and local demo PINs: waiter `1111`, kitchen `2222`, and admin `3333`. Replace the session secret and every PIN before any non-demo use.
+
 ### 3. Set up and start the demo
 
 ```sh
@@ -40,9 +42,9 @@ Alternatively, in VS Code choose **Terminal → Run Task → Start POS Demo**.
 ### 4. Open the demo screens
 
 - [Kiosk](http://127.0.0.1:5173/kiosk) — place an order
-- [Waiter station](http://127.0.0.1:5173/waiter) — review, edit, and approve orders; record cash payments
-- [Kitchen display](http://127.0.0.1:5173/kds) — move orders through preparation
+- [Waiter station](http://127.0.0.1:5173/waiter) — sign in with the waiter PIN, review/edit/approve orders, and record cash payments
+- [Kitchen display](http://127.0.0.1:5173/kds) — sign in with the kitchen PIN and move orders through preparation
 - [Admin and report](http://127.0.0.1:5173/admin) — manage item availability and view paid-sales totals
 - [API health](http://127.0.0.1:3000/health) — check that the API and database are connected
 
-Keep `npm run dev` running while you use the demo. Press **Ctrl+C** in that terminal when finished. The app is for local demonstration only; it has no staff authentication, so don’t expose it to the public internet. See the `README setup guide` for more details.
+Keep `npm run dev` running while you use the demo. Press **Ctrl+C** in that terminal when finished. The app is for local demonstration only; shared PINs are not individual staff accounts, so don’t expose it to the public internet. See the `README setup guide` for more details.
