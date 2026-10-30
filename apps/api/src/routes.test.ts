@@ -34,12 +34,20 @@ describe("customer order validation", () => {
   const order = {
     id: "b4e69710-aa3b-47da-ae7d-78c1a901cba2",
     orderType: "TAKEAWAY",
-    tableNumber: null,
+    customerReference: "Alex",
     items: [{ menuItemId: 1, quantity: 1 }],
   };
 
-  it("accepts customer menu items without modification notes", () => {
+  it("accepts an optional customer reference on takeaway and dine-in orders", () => {
     assert.deepEqual(parseCustomerOrderInput(order), order);
+    assert.deepEqual(
+      parseCustomerOrderInput({ ...order, orderType: "DINE_IN", customerReference: "12" }),
+      { ...order, orderType: "DINE_IN", customerReference: "12" },
+    );
+    assert.deepEqual(
+      parseCustomerOrderInput({ ...order, customerReference: null }),
+      { ...order, customerReference: null },
+    );
   });
 
   it("rejects a customer-supplied modification note", () => {
@@ -47,6 +55,16 @@ describe("customer order validation", () => {
       () => parseCustomerOrderInput({
         ...order,
         items: [{ ...order.items[0], notes: "Extra cheese" }],
+      }),
+      (error: unknown) => error instanceof HttpError && error.status === 400,
+    );
+  });
+
+  it("rejects the old table-only request field", () => {
+    assert.throws(
+      () => parseCustomerOrderInput({
+        ...order,
+        tableNumber: "12",
       }),
       (error: unknown) => error instanceof HttpError && error.status === 400,
     );

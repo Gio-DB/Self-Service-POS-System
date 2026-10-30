@@ -3,7 +3,10 @@ import { describe, it } from "node:test";
 import {
   calculateCashChange,
   calculateOrderTotal,
+  canRoleRequestOrderStatus,
+  canRoleTransitionOrder,
   canTransitionOrder,
+  nextDailyOrderNumber,
   sameOrderLines,
 } from "./order-rules.js";
 
@@ -14,6 +17,32 @@ describe("order rules", () => {
     assert.equal(canTransitionOrder("PREPARING", "READY"), true);
     assert.equal(canTransitionOrder("READY", "PREPARING"), false);
     assert.equal(canTransitionOrder("CANCELLED", "ACCEPTED"), false);
+  });
+
+  it("limits the statuses each staff role may request", () => {
+    assert.equal(canRoleRequestOrderStatus("WAITER", "ACCEPTED"), true);
+    assert.equal(canRoleRequestOrderStatus("WAITER", "CANCELLED"), true);
+    assert.equal(canRoleRequestOrderStatus("WAITER", "PREPARING"), false);
+    assert.equal(canRoleRequestOrderStatus("KITCHEN", "PREPARING"), true);
+    assert.equal(canRoleRequestOrderStatus("KITCHEN", "READY"), true);
+    assert.equal(canRoleRequestOrderStatus("KITCHEN", "ACCEPTED"), false);
+  });
+
+  it("rejects stale transitions even when the target is normally allowed for the role", () => {
+    assert.equal(canRoleTransitionOrder("WAITER", "PENDING_REVIEW", "ACCEPTED"), true);
+    assert.equal(canRoleTransitionOrder("WAITER", "ACCEPTED", "CANCELLED"), false);
+    assert.equal(canRoleTransitionOrder("WAITER", "ACCEPTED", "ACCEPTED"), false);
+    assert.equal(canRoleTransitionOrder("KITCHEN", "ACCEPTED", "PREPARING"), true);
+    assert.equal(canRoleTransitionOrder("KITCHEN", "ACCEPTED", "READY"), false);
+  });
+
+  it("allocates daily references up to the five-digit limit", () => {
+    assert.equal(nextDailyOrderNumber(0), 1);
+    assert.equal(nextDailyOrderNumber(1), 2);
+    assert.equal(nextDailyOrderNumber(99_998), 99_999);
+    assert.equal(nextDailyOrderNumber(99_999), null);
+    assert.throws(() => nextDailyOrderNumber(-1), /outside the supported range/);
+    assert.throws(() => nextDailyOrderNumber(100_000), /outside the supported range/);
   });
 
   it("calculates totals using integer minor units", () => {

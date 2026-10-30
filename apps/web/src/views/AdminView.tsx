@@ -3,17 +3,13 @@ import { api, type MenuCategory } from "../api.js";
 import { formatMoney } from "../format.js";
 import { StaffGate } from "../components/StaffGate.js";
 
-function todayUtc() {
-  return new Date().toISOString().slice(0, 10);
-}
-
 export function AdminView() {
   return <StaffGate role="ADMIN"><AdminContent /></StaffGate>;
 }
 
 function AdminContent() {
   const [categories, setCategories] = useState<MenuCategory[]>([]);
-  const [date, setDate] = useState(todayUtc());
+  const [date, setDate] = useState("");
   const [report, setReport] = useState<{
     date: string;
     paidOrderCount: number;
@@ -32,7 +28,9 @@ function AdminContent() {
 
   async function loadReport() {
     try {
-      setReport(await api.getDailyReport(date));
+      const dailyReport = await api.getDailyReport(date || undefined);
+      setReport(dailyReport);
+      if (!date) setDate(dailyReport.date);
       setError("");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not load report.");
@@ -96,7 +94,7 @@ function AdminContent() {
           <div className="report-grid">
             <article className="report-card"><span>Paid orders</span><strong>{report.paidOrderCount}</strong></article>
             <article className="report-card"><span>Paid sales</span><strong>{formatMoney(report.totalMinorUnits)}</strong></article>
-            <article className="report-card"><span>Date (UTC)</span><strong>{report.date}</strong></article>
+            <article className="report-card"><span>Business date</span><strong>{report.date}</strong></article>
           </div>
         )}
       </section>

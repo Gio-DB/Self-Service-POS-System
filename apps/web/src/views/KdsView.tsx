@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { io } from "socket.io-client";
 import { api, socketUrl, type Order } from "../api.js";
 import { StaffGate } from "../components/StaffGate.js";
-import { formatMoney, formatTime } from "../format.js";
+import { formatMoney, formatOrderReference, formatTime } from "../format.js";
 
 export function KdsView() {
   return <StaffGate role="KITCHEN"><KdsContent /></StaffGate>;
@@ -29,8 +29,10 @@ function KdsContent() {
   useEffect(() => {
     void refresh();
     const socket = io(socketUrl, { withCredentials: true });
+    socket.on("connect", refresh);
     socket.on("orders:changed", refresh);
     return () => {
+      socket.off("connect", refresh);
       socket.off("orders:changed", refresh);
       socket.disconnect();
     };
@@ -107,13 +109,17 @@ function KitchenTicket({
   return (
     <article className={`kds-card kds-${order.status.toLowerCase()}`}>
       <div className="kds-card-top">
-        <span className="kds-number">#{order.id.slice(0, 4).toUpperCase()}</span>
+        <span className="kds-number">#{formatOrderReference(order.orderNumber)}</span>
         <span className="kds-time">{formatTime(order.createdAt)}</span>
       </div>
       <div className="kds-card-title">
         <div>
           <p className="eyebrow kds-order-type">{order.orderType === "DINE_IN" ? "DINE IN" : "TAKEAWAY"}</p>
-          <h2>{order.tableNumber ? `Table ${order.tableNumber}` : "Order"}</h2>
+          <h2>
+            {order.orderType === "DINE_IN"
+              ? order.customerReference ? `Table ${order.customerReference}` : "Dine in"
+              : order.customerReference || "Takeaway"}
+          </h2>
         </div>
         <span className={`status-pill status-${order.status.toLowerCase()}`}>{order.status}</span>
       </div>

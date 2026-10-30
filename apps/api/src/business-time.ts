@@ -34,14 +34,10 @@ function partsAt(value: Date, timeZone: string) {
 
 function offsetAt(value: Date, timeZone: string): number {
   const parts = partsAt(value, timeZone);
-  return Date.UTC(
-    parts.year,
-    parts.month - 1,
-    parts.day,
-    parts.hour,
-    parts.minute,
-    parts.second,
-  ) - value.getTime();
+  const localAsUtc = utcCalendarDate(parts.year, parts.month, parts.day);
+  localAsUtc.setUTCHours(parts.hour, parts.minute, parts.second, 0);
+  const wholeSecond = Math.floor(value.getTime() / 1_000) * 1_000;
+  return localAsUtc.getTime() - wholeSecond;
 }
 
 export function restaurantBusinessDate(value: Date, timeZone: string): string {
@@ -51,15 +47,47 @@ export function restaurantBusinessDate(value: Date, timeZone: string): string {
     .padStart(2, "0")}-${parts.day.toString().padStart(2, "0")}`;
 }
 
+function utcCalendarDate(year: number, month: number, day: number): Date {
+  const date = new Date(0);
+  date.setUTCFullYear(year, month - 1, day);
+  date.setUTCHours(0, 0, 0, 0);
+  return date;
+}
+
+function startOfBusinessDate(
+  year: number,
+  month: number,
+  day: number,
+  timeZone: string,
+): Date {
+  const midnightAsUtc = utcCalendarDate(year, month, day);
+  let candidate = new Date(
+    midnightAsUtc.getTime() - offsetAt(midnightAsUtc, timeZone),
+  );
+  candidate = new Date(
+    midnightAsUtc.getTime() - offsetAt(candidate, timeZone),
+  );
+  return candidate;
+}
+
+export function startOfRestaurantBusinessDate(
+  value: Date,
+  timeZone: string,
+): Date {
+  return startOfBusinessDate(
+    value.getUTCFullYear(),
+    value.getUTCMonth() + 1,
+    value.getUTCDate(),
+    timeZone,
+  );
+}
+
 export function startOfRestaurantBusinessDay(
   value: Date,
   timeZone: string,
 ): Date {
   const parts = partsAt(value, timeZone);
-  const midnightAsUtc = Date.UTC(parts.year, parts.month - 1, parts.day);
-  let candidate = new Date(midnightAsUtc - offsetAt(new Date(midnightAsUtc), timeZone));
-  candidate = new Date(midnightAsUtc - offsetAt(candidate, timeZone));
-  return candidate;
+  return startOfBusinessDate(parts.year, parts.month, parts.day, timeZone);
 }
 
 export function restaurantTimeZone(

@@ -33,8 +33,10 @@ model MenuItem {
 
 model Order {
   id                       String      @id @db.Uuid
+  orderNumber              Int         @map("order_number")
+  businessDate             DateTime    @db.Date @map("business_date")
   orderType                String      @map("order_type")
-  tableNumber              String?     @map("table_number")
+  customerReference        String?     @map("customer_reference")
   status                   String      @default("PENDING_REVIEW")
   paymentStatus            String      @default("UNPAID") @map("payment_status")
   totalMinorUnits          Int         @map("total_minor_units")
@@ -49,7 +51,15 @@ model Order {
   @@index([status, createdAt])
   @@index([paymentStatus, paidAt])
   @@index([approvedAt])
+  @@unique([businessDate, orderNumber])
   @@map("orders")
+}
+
+model DailyOrderCounter {
+  businessDate DateTime @id @db.Date @map("business_date")
+  lastNumber   Int      @map("last_number")
+
+  @@map("daily_order_counters")
 }
 
 model OrderItem {

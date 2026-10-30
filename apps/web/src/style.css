@@ -119,9 +119,10 @@ footer { padding: 20px; color: #8b938b; text-align: center; font-size: 11px; }
 .status-cancelled { color: #9b4540; background: #faeae8; }
 .order-time { margin: 8px 0 12px; color: #929a92; font-size: 10px; }
 .order-lines { display: grid; gap: 8px; }
-.order-line { display: flex; justify-content: space-between; gap: 10px; color: #59645b; font-size: 11px; }
-.order-line > strong { color: #3a433b; }
-.order-note { flex-basis: 100%; color: var(--red); font-size: 10px; }
+.order-line { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: start; gap: 4px 10px; color: #59645b; font-size: 11px; }
+.order-line > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.order-line > strong { color: #3a433b; white-space: nowrap; text-align: right; }
+.order-note { grid-column: 1 / -1; color: var(--red); font-size: 10px; }
 .order-total { margin-top: 10px; padding: 11px 0; }
 .order-total strong { font-size: 14px; }
 .order-edit { display: grid; gap: 8px; padding: 12px 0; margin-top: 10px; border-top: 1px dashed var(--line); }

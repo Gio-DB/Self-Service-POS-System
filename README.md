@@ -2,7 +2,7 @@
 
 A local, browser-based prototype of a restaurant ordering flow. It has one React/Vite web app, one Express API, and one PostgreSQL database. The kiosk, waiter, kitchen display, and demo admin screens are routes in the same web app.
 
-This is a development demo, not production POS software. It uses shared role PINs for local staff access, but has no individual accounts, persistent offline queue, payment provider, tax configuration, or production backup/security controls.
+This is a development demo, not production POS software. The project plan and system requirements describe broader intended capabilities; this prototype does not implement all of them. It uses shared role PINs for local staff access, but has no individual accounts, persistent offline queue, payment provider, tax configuration, or production backup/security controls.
 
 ## Requirements
 
@@ -30,14 +30,14 @@ psql postgres -c "CREATE DATABASE restaurant_pos OWNER pos;"
 From the repository root, install project packages, create local configuration, apply the schema, and seed the demo menu:
 
 ```sh
-npm install
+npm ci
 cp .env.example .env
 npm run db:migrate
 npm run db:generate
 npm run db:seed
 ```
 
-The checked-in `.env.example` uses a local demo PostgreSQL URL, GBP display formatting, Europe/Berlin business-day boundaries, and shared demo PINs. Change `DATABASE_URL`, `VITE_CURRENCY`, `RESTAURANT_TIME_ZONE`, `STAFF_SESSION_SECRET`, and every `STAFF_*_PIN` in your untracked `.env` before any non-demo use. The GBP setting is only a demo default; choose the restaurant's currency before using real prices.
+The checked-in `.env.example` uses a local demo PostgreSQL URL, EUR display formatting, Europe/Berlin business-day boundaries and staff timestamps, and shared demo PINs. Change `DATABASE_URL`, `RESTAURANT_TIME_ZONE`, `STAFF_SESSION_SECRET`, and every `STAFF_*_PIN` in your untracked `.env` before any non-demo use.
 
 Start the API and frontend together:
 
@@ -81,7 +81,7 @@ The API is deliberately one process with focused route and business-rule modules
 ## Demo flow
 
 1. Add menu items to the kiosk basket and submit a takeaway or dine-in order.
-2. In Waiter, enter the shared waiter PIN, modify item quantities or staff-only notes, and approve the order.
+2. In Waiter, enter the shared waiter PIN, review the five-digit order reference, modify item quantities or staff-only notes, and approve the order.
 3. In Kitchen, move it through Preparing and Ready.
 4. In Waiter, record cash tendered and verify change due.
 5. In Admin, inspect the daily paid-sales summary or mark a menu item sold out.
@@ -92,7 +92,12 @@ Orders and payment states are stored in PostgreSQL. Re-submitting the same order
 
 - Staff roles use shared PINs, not individual staff identities or production-grade account management. Do not expose this service to the public internet or use it for real transactions.
 - Orders require a live API connection. Offline IndexedDB queueing is not implemented; disconnected orders are not restaurant-accepted.
-- Prices are seeded demo values in integer minor units. Currency/tax rules and kitchen station assignment are not configured.
+- The KDS has no separate collection/clear action; ready orders stay visible until the next business day, then move to the archive.
+- Waiter/KDS boards load the complete order history and partition it in memory. This is simple for the demo dataset; add bounded/paginated history before using it with a large production database.
+- Prices are seeded demo values in integer euro cents. Tax rules and kitchen station assignment are not configured.
 - The application has not been verified on Raspberry Pi/Ubuntu hardware. The Pi remains a later deployment target; no separate firmware is required.
+- Staff accounts/user management, menu creation and price editing, out-of-order mode, and automated backups from the broader requirements are not implemented in this demo.
+
+The demo implements connected kiosk ordering, waiter review/edit/approval, daily five-digit order references, KDS status progression, EUR cash payment recording, menu availability, and restaurant-timezone staff timestamps and daily sales summaries. Treat other requirements in the project plan and system requirements as planned or deferred unless this README explicitly identifies them as implemented.
 
 See the [project plan](./restaurant_pos_project_plan_en.md) and [system requirements](./restaurant_pos_system_requirements.md) for broader intended scope and open decisions.

@@ -13,7 +13,7 @@ export function KioskView() {
   const [categories, setCategories] = useState<MenuCategory[]>([]);
   const [quantities, setQuantities] = useState<Record<number, number>>({});
   const [orderType, setOrderType] = useState<"TAKEAWAY" | "DINE_IN">("TAKEAWAY");
-  const [tableNumber, setTableNumber] = useState("");
+  const [customerReference, setCustomerReference] = useState("");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -41,10 +41,12 @@ export function KioskView() {
         });
     };
     const socket = io(socketUrl);
+    socket.on("connect", loadMenu);
     socket.on("menu:changed", loadMenu);
     loadMenu();
     return () => {
       active = false;
+      socket.off("connect", loadMenu);
       socket.off("menu:changed", loadMenu);
       socket.disconnect();
     };
@@ -92,7 +94,7 @@ export function KioskView() {
       const order = await api.createOrder({
         id: orderId,
         orderType,
-        tableNumber: orderType === "DINE_IN" ? tableNumber.trim() || null : null,
+        customerReference: customerReference.trim() || null,
         items: cartItems.map((item) => ({
           menuItemId: item.id,
           quantity: quantities[item.id] ?? 0,
@@ -100,7 +102,7 @@ export function KioskView() {
       });
       setMessage(`Order ${order.id.slice(0, 8)} sent for waiter review.`);
       setQuantities({});
-      setTableNumber("");
+      setCustomerReference("");
       submissionOrderId.current = null;
       setConfirming(false);
     } catch (cause) {
@@ -176,12 +178,15 @@ export function KioskView() {
             <div><p className="eyebrow">YOUR ORDER</p><h2>Basket</h2></div>
             <span className="count-pill">{cartItems.reduce((sum, item) => sum + (quantities[item.id] ?? 0), 0)}</span>
           </div>
-          {orderType === "DINE_IN" && (
-            <label className="field-label">
-              Table number <span className="optional">(optional)</span>
-              <input value={tableNumber} onChange={(event) => setTableNumber(event.target.value)} placeholder="e.g. 12" maxLength={30} />
-            </label>
-          )}
+          <label className="field-label">
+            Your name or table number <span className="optional">(optional)</span>
+            <input
+              value={customerReference}
+              onChange={(event) => setCustomerReference(event.target.value)}
+              placeholder="Optional"
+              maxLength={30}
+            />
+          </label>
           {cartItems.length === 0 ? (
             <div className="empty-cart"><span>＋</span><p>Your basket is empty.</p><small>Add something delicious.</small></div>
           ) : (
@@ -237,10 +242,10 @@ export function KioskView() {
               <strong>Order type</strong>
               <span>{orderType === "DINE_IN" ? "Dine in" : "Takeaway"}</span>
             </p>
-            {orderType === "DINE_IN" && tableNumber.trim() && (
+            {customerReference.trim() && (
               <p>
-                <strong>Table</strong>
-                <span>{tableNumber.trim()}</span>
+                <strong>{orderType === "DINE_IN" ? "Table number" : "Your name"}</strong>
+                <span>{customerReference.trim()}</span>
               </p>
             )}
           </div>

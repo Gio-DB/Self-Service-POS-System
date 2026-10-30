@@ -7,7 +7,7 @@ import {
 } from "../cash-entry.js";
 import { Dialog } from "../components/Dialog.js";
 import { StaffGate } from "../components/StaffGate.js";
-import { formatMoney, formatTime } from "../format.js";
+import { formatMoney, formatOrderReference, formatTime } from "../format.js";
 
 type EditLine = {
   id: number;
@@ -401,12 +401,19 @@ function BoardSection({
 }
 
 function OrderSummary({ order }: { order: Order }) {
+  const orderDescription = order.orderType === "DINE_IN"
+    ? order.customerReference
+      ? `Dine in · Table ${order.customerReference}`
+      : "Dine in"
+    : order.customerReference
+      ? `Takeaway · ${order.customerReference}`
+      : "Takeaway";
   return (
     <>
       <div className="order-card-heading">
         <div>
-          <p className="eyebrow">ORDER {order.id.slice(0, 8)}</p>
-          <h3>{order.orderType === "DINE_IN" ? `Dine in${order.tableNumber ? ` · Table ${order.tableNumber}` : ""}` : "Takeaway"}</h3>
+          <p className="eyebrow">ORDER {formatOrderReference(order.orderNumber)}</p>
+          <h3>{orderDescription}</h3>
         </div>
         <span className={`status-pill status-${order.status.toLowerCase()}`}>{order.status.replaceAll("_", " ")}</span>
       </div>

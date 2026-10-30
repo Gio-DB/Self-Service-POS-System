@@ -6,7 +6,10 @@ export const orderStatuses = [
   "CANCELLED",
 ] as const;
 
+export const maxDailyOrderNumber = 99_999;
+
 export type OrderStatus = (typeof orderStatuses)[number];
+export type OrderStaffRole = "WAITER" | "KITCHEN" | "ADMIN";
 
 const allowedTransitions: Record<OrderStatus, readonly OrderStatus[]> = {
   PENDING_REVIEW: ["ACCEPTED", "CANCELLED"],
@@ -21,6 +24,45 @@ export function canTransitionOrder(
   next: OrderStatus,
 ): boolean {
   return current === next || allowedTransitions[current].includes(next);
+}
+
+export function canRoleRequestOrderStatus(
+  role: OrderStaffRole,
+  status: OrderStatus,
+): boolean {
+  if (role === "WAITER") {
+    return status === "ACCEPTED" || status === "CANCELLED";
+  }
+  if (role === "KITCHEN") {
+    return status === "PREPARING" || status === "READY";
+  }
+  return false;
+}
+
+export function canRoleTransitionOrder(
+  role: OrderStaffRole,
+  current: OrderStatus,
+  next: OrderStatus,
+): boolean {
+  if (!canTransitionOrder(current, next)) return false;
+  if (role === "WAITER") {
+    return current === "PENDING_REVIEW" &&
+      (next === "ACCEPTED" || next === "CANCELLED");
+  }
+  if (role === "KITCHEN") {
+    return (
+      (current === "ACCEPTED" && next === "PREPARING") ||
+      (current === "PREPARING" && next === "READY")
+    );
+  }
+  return false;
+}
+
+export function nextDailyOrderNumber(lastNumber: number): number | null {
+  if (!Number.isInteger(lastNumber) || lastNumber < 0 || lastNumber > maxDailyOrderNumber) {
+    throw new Error("Daily order counter is outside the supported range.");
+  }
+  return lastNumber === maxDailyOrderNumber ? null : lastNumber + 1;
 }
 
 export function calculateCashChange(

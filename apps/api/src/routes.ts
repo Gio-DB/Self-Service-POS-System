@@ -12,7 +12,9 @@ import {
   staffSessionCookieOptions,
 } from "./auth.js";
 import {
+  restaurantBusinessDate,
   restaurantTimeZone,
+  startOfRestaurantBusinessDate,
   startOfRestaurantBusinessDay,
 } from "./business-time.js";
 import { HttpError } from "./errors.js";
@@ -20,7 +22,9 @@ import { createKdsOrderBoard, createWaiterOrderBoard } from "./order-boards.js";
 import {
   calculateCashChange,
   calculateOrderTotal,
-  canTransitionOrder,
+  canRoleRequestOrderStatus,
+  canRoleTransitionOrder,
+  nextDailyOrderNumber,
   orderStatuses,
   sameOrderLines,
   type OrderStatus,
@@ -48,7 +52,7 @@ const waiterOrderItemSchema = z.object({
 const orderInputSchema = z.object({
   id: z.string().uuid(),
   orderType: z.enum(["TAKEAWAY", "DINE_IN"]),
-  tableNumber: z.string().trim().max(30).optional().nullable(),
+  customerReference: z.string().trim().max(30).optional().nullable(),
   items: z.array(customerOrderItemSchema).min(1).max(50),
 }).strict();
 
@@ -270,7 +274,7 @@ export function createApiRouter(prisma: PrismaClient, events: RealtimeEvents) {
     if (existing) {
       if (
         existing.orderType !== input.orderType ||
-        existing.tableNumber !== (input.tableNumber?.trim() || null) ||
+        existing.customerReference !== (input.customerReference?.trim() || null) ||
         !sameOrderLines(
           orderLinesForComparison(existing.items),
           requestedItems,
@@ -286,18 +290,69 @@ export function createApiRouter(prisma: PrismaClient, events: RealtimeEvents) {
     }
 
     const { lines, totalMinorUnits } = await fetchMenuLines(prisma, input.items);
+    const businessDate = restaurantBusinessDate(new Date(), timeZone);
+    const businessDateValue = new Date(`${businessDate}T00:00:00.000Z`);
     try {
-      const order = await prisma.order.create({
-        data: {
-          id: input.id,
-          orderType: input.orderType,
-          tableNumber: input.tableNumber?.trim() || null,
-          totalMinorUnits,
-          items: { create: lines },
-        },
-        include: orderInclude,
+      const result = await prisma.$transaction(async (transaction) => {
+        await transaction.$executeRaw`
+          INSERT INTO "daily_order_counters" ("business_date", "last_number")
+          VALUES (${businessDate}::date, 0)
+          ON CONFLICT ("business_date") DO NOTHING
+        `;
+        const [counter] = await transaction.$queryRaw<{ lastNumber: number }[]>`
+          SELECT "last_number" AS "lastNumber"
+          FROM "daily_order_counters"
+          WHERE "business_date" = ${businessDate}::date
+          FOR UPDATE
+        `;
+        if (!counter) throw new Error("Daily order counter could not be locked.");
+
+        const concurrentOrder = await transaction.order.findUnique({
+          where: { id: input.id },
+          include: orderInclude,
+        });
+        if (concurrentOrder) {
+          if (
+            concurrentOrder.orderType !== input.orderType ||
+            concurrentOrder.customerReference !== (input.customerReference?.trim() || null) ||
+            !sameOrderLines(
+              orderLinesForComparison(concurrentOrder.items),
+              requestedItems,
+            )
+          ) {
+            throw new HttpError(409, "This order ID was already used for a different order.");
+          }
+          return { order: concurrentOrder, created: false };
+        }
+
+        const orderNumber = nextDailyOrderNumber(counter.lastNumber);
+        if (orderNumber === null) {
+          throw new HttpError(
+            503,
+            "The daily order-number limit has been reached. New orders can be placed after the next business day starts.",
+          );
+        }
+        await transaction.$executeRaw`
+          UPDATE "daily_order_counters"
+          SET "last_number" = ${orderNumber}
+          WHERE "business_date" = ${businessDate}::date
+        `;
+
+        const order = await transaction.order.create({
+          data: {
+            id: input.id,
+            orderNumber,
+            businessDate: businessDateValue,
+            orderType: input.orderType,
+            customerReference: input.customerReference?.trim() || null,
+            totalMinorUnits,
+            items: { create: lines },
+          },
+          include: orderInclude,
+        });
+        return { order, created: true };
       });
-      response.status(201).json(order);
+      response.status(result.created ? 201 : 200).json(result.order);
     } catch (error) {
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
@@ -310,7 +365,7 @@ export function createApiRouter(prisma: PrismaClient, events: RealtimeEvents) {
         if (
           concurrentOrder &&
           concurrentOrder.orderType === input.orderType &&
-          concurrentOrder.tableNumber === (input.tableNumber?.trim() || null) &&
+          concurrentOrder.customerReference === (input.customerReference?.trim() || null) &&
           sameOrderLines(
             orderLinesForComparison(concurrentOrder.items),
             requestedItems,
@@ -319,7 +374,9 @@ export function createApiRouter(prisma: PrismaClient, events: RealtimeEvents) {
           response.status(200).json(concurrentOrder);
           return;
         }
-        throw new HttpError(409, "This order ID has already been used.");
+        if (concurrentOrder) {
+          throw new HttpError(409, "This order ID has already been used.");
+        }
       }
       throw error;
     }
@@ -366,28 +423,15 @@ export function createApiRouter(prisma: PrismaClient, events: RealtimeEvents) {
       where: { id: orderId },
     });
     if (!current) throw new HttpError(404, "Order not found.");
-    const waiterTransition =
-      current.status === "PENDING_REVIEW" &&
-      (input.status === "ACCEPTED" || input.status === "CANCELLED");
-    const kitchenTransition =
-      (current.status === "ACCEPTED" && input.status === "PREPARING") ||
-      (current.status === "PREPARING" && input.status === "READY");
-    if (
-      (session.role === "WAITER" && !waiterTransition) ||
-      (session.role === "KITCHEN" && !kitchenTransition)
-    ) {
+    if (!canRoleRequestOrderStatus(session.role, input.status)) {
       throw new HttpError(403, "Your staff role is not permitted to make this status change.");
     }
-    if (
-      !canTransitionOrder(
-        current.status as OrderStatus,
-        input.status as OrderStatus,
-      )
-    ) {
-      throw new HttpError(
-        409,
-        `Order cannot move from ${current.status} to ${input.status}.`,
-      );
+    if (!canRoleTransitionOrder(
+      session.role,
+      current.status as OrderStatus,
+      input.status,
+    )) {
+      throw new HttpError(409, "The order changed; refresh and try again.");
     }
     const changed = await prisma.order.updateMany({
       where: { id: current.id, status: current.status },
@@ -464,20 +508,28 @@ export function createApiRouter(prisma: PrismaClient, events: RealtimeEvents) {
     if (dateQuery !== undefined && typeof dateQuery !== "string") {
       throw new HttpError(400, "Date must use YYYY-MM-DD format.");
     }
-    const date =
-      typeof dateQuery === "string" ? dateQuery : new Date().toISOString().slice(0, 10);
+    const date = typeof dateQuery === "string"
+      ? dateQuery
+      : restaurantBusinessDate(new Date(), timeZone);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       throw new HttpError(400, "Date must use YYYY-MM-DD format.");
     }
     if (Number(date.slice(0, 4)) < 1) {
       throw new HttpError(400, "Date is not valid.");
     }
-    const start = new Date(`${date}T00:00:00.000Z`);
-    if (Number.isNaN(start.getTime()) || start.toISOString().slice(0, 10) !== date) {
+    const calendarDate = new Date(`${date}T00:00:00.000Z`);
+    if (
+      Number.isNaN(calendarDate.getTime()) ||
+      calendarDate.toISOString().slice(0, 10) !== date
+    ) {
       throw new HttpError(400, "Date is not valid.");
     }
-    const end = new Date(start);
-    end.setUTCDate(end.getUTCDate() + 1);
+    const nextCalendarDate = new Date(calendarDate);
+    nextCalendarDate.setUTCDate(nextCalendarDate.getUTCDate() + 1);
+    const businessStart = startOfRestaurantBusinessDate(calendarDate, timeZone);
+    const end = startOfRestaurantBusinessDate(nextCalendarDate, timeZone);
+    // Clamp pre-AD business boundaries; PostgreSQL has no year zero.
+    const start = businessStart.getUTCFullYear() < 1 ? calendarDate : businessStart;
     const [count, sum] = await prisma.$transaction([
       prisma.order.count({
         where: {

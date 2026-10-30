@@ -26,8 +26,10 @@ export type OrderItem = {
 
 export type Order = {
   id: string;
+  orderNumber: number;
+  businessDate: string;
   orderType: "TAKEAWAY" | "DINE_IN";
-  tableNumber: string | null;
+  customerReference: string | null;
   status: "PENDING_REVIEW" | "ACCEPTED" | "PREPARING" | "READY" | "CANCELLED";
   paymentStatus: "UNPAID" | "PAID";
   totalMinorUnits: number;
@@ -102,7 +104,7 @@ export const api = {
   createOrder: (body: {
     id: string;
     orderType: "TAKEAWAY" | "DINE_IN";
-    tableNumber: string | null;
+    customerReference: string | null;
     items: { menuItemId: number; quantity: number }[];
   }) =>
     request<Order>("/api/orders", {
@@ -132,12 +134,12 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ isAvailable }),
     }),
-  getDailyReport: (date: string) =>
+  getDailyReport: (date?: string) =>
     request<{
       date: string;
       paidOrderCount: number;
       totalMinorUnits: number;
-    }>(`/api/reports/daily?date=${encodeURIComponent(date)}`),
+    }>(`/api/reports/daily${date ? `?date=${encodeURIComponent(date)}` : ""}`),
   login: (role: StaffRole, pin: string) =>
     request<{ role: StaffRole }>("/api/auth/login", {
       method: "POST",
