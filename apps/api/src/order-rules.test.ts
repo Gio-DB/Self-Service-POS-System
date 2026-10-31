@@ -15,21 +15,27 @@ describe("order rules", () => {
     assert.equal(canTransitionOrder("PENDING_REVIEW", "ACCEPTED"), true);
     assert.equal(canTransitionOrder("ACCEPTED", "PREPARING"), true);
     assert.equal(canTransitionOrder("PREPARING", "READY"), true);
+    assert.equal(canTransitionOrder("READY", "SERVED"), true);
+    assert.equal(canTransitionOrder("SERVED", "READY"), false);
     assert.equal(canTransitionOrder("READY", "PREPARING"), false);
     assert.equal(canTransitionOrder("CANCELLED", "ACCEPTED"), false);
   });
 
   it("limits the statuses each staff role may request", () => {
     assert.equal(canRoleRequestOrderStatus("WAITER", "ACCEPTED"), true);
+    assert.equal(canRoleRequestOrderStatus("WAITER", "SERVED"), true);
     assert.equal(canRoleRequestOrderStatus("WAITER", "CANCELLED"), true);
     assert.equal(canRoleRequestOrderStatus("WAITER", "PREPARING"), false);
     assert.equal(canRoleRequestOrderStatus("KITCHEN", "PREPARING"), true);
     assert.equal(canRoleRequestOrderStatus("KITCHEN", "READY"), true);
+    assert.equal(canRoleRequestOrderStatus("KITCHEN", "SERVED"), false);
     assert.equal(canRoleRequestOrderStatus("KITCHEN", "ACCEPTED"), false);
   });
 
   it("rejects stale transitions even when the target is normally allowed for the role", () => {
     assert.equal(canRoleTransitionOrder("WAITER", "PENDING_REVIEW", "ACCEPTED"), true);
+    assert.equal(canRoleTransitionOrder("WAITER", "READY", "SERVED"), true);
+    assert.equal(canRoleTransitionOrder("WAITER", "PREPARING", "SERVED"), false);
     assert.equal(canRoleTransitionOrder("WAITER", "ACCEPTED", "CANCELLED"), false);
     assert.equal(canRoleTransitionOrder("WAITER", "ACCEPTED", "ACCEPTED"), false);
     assert.equal(canRoleTransitionOrder("KITCHEN", "ACCEPTED", "PREPARING"), true);

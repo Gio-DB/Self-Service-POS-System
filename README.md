@@ -37,7 +37,7 @@ npm run db:generate
 npm run db:seed
 ```
 
-The checked-in `.env.example` uses a local demo PostgreSQL URL, EUR display formatting, Europe/Berlin business-day boundaries and staff timestamps, and shared demo PINs. Change `DATABASE_URL`, `RESTAURANT_TIME_ZONE`, `STAFF_SESSION_SECRET`, and every `STAFF_*_PIN` in your untracked `.env` before any non-demo use.
+The checked-in `.env.example` uses a local demo PostgreSQL URL, EUR display formatting, Europe/Berlin business-day boundaries and staff timestamps, and shared demo PINs. Change `DATABASE_URL`, `RESTAURANT_TIME_ZONE`, `STAFF_SESSION_SECRET`, and every `STAFF_*_PIN` in your untracked `.env` before first setup or any non-demo use. On first sign-in, the API stores the role PINs as non-recoverable hashes; thereafter, an administrator can replace all three in the Admin UI. Existing sessions remain valid until they expire.
 
 Start the API and frontend together:
 
@@ -53,7 +53,7 @@ Or in VS Code, use **Terminal → Run Task → Start POS Demo**. Open:
 - Admin/report: <http://127.0.0.1:5173/admin>
 - API health: <http://127.0.0.1:3000/health>
 
-Use separate tabs or windows to demonstrate the views. The waiter screen requires PIN `1111`, the kitchen display requires `2222`, and admin requires `3333` when using the example configuration. The waiter screen refreshes its four order sections periodically; the KDS receives server updates over Socket.IO.
+Use separate tabs or windows to demonstrate the views. The waiter screen requires PIN `1111`, the kitchen display requires `2222`, and admin requires `3333` when using the example configuration. The waiter screen refreshes its five order sections periodically; the KDS receives server updates over Socket.IO.
 
 ## Developer checks
 
@@ -83,8 +83,8 @@ The API is deliberately one process with focused route and business-rule modules
 1. Add menu items to the kiosk basket and submit a takeaway or dine-in order.
 2. In Waiter, enter the shared waiter PIN, review the five-digit order reference, modify item quantities or staff-only notes, and approve the order.
 3. In Kitchen, move it through Preparing and Ready.
-4. In Waiter, record cash tendered and verify change due.
-5. In Admin, inspect the daily paid-sales summary or mark a menu item sold out.
+4. In Waiter, mark the ready order as served, then record cash tendered and verify change due.
+5. In Admin, inspect the daily paid-sales summary, mark a menu item sold out, or replace all shared role PINs. Existing PIN values remain hidden.
 
 Orders and payment states are stored in PostgreSQL. Re-submitting the same order ID and payload is idempotent; reusing the ID with a different payload is rejected.
 

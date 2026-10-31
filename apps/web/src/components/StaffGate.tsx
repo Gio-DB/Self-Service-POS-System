@@ -91,7 +91,6 @@ export function StaffGate({
             <input
               id={`staff-pin-${role.toLowerCase()}`}
               type="password"
-              inputMode="numeric"
               autoComplete="current-password"
               value={pin}
               onChange={(event) => setPin(event.target.value)}

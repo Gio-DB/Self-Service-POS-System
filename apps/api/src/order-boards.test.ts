@@ -34,6 +34,8 @@ describe("order boards", () => {
       order("pending-later", { createdAt: new Date("2026-10-29T10:00:00.000Z") }),
       order("pending-earlier", { createdAt: new Date("2026-10-29T08:00:00.000Z") }),
       order("active", { status: "PREPARING" }),
+      order("ready-active", { status: "READY" }),
+      order("served", { status: "SERVED" }),
       order("paid-earlier", {
         status: "READY",
         paymentStatus: "PAID",
@@ -48,9 +50,17 @@ describe("order boards", () => {
     ], dayStart);
 
     assert.deepEqual(board.awaitingReview.map(({ id }) => id), ["pending-earlier", "pending-later"]);
-    assert.deepEqual(board.active.map(({ id }) => id), ["active"]);
+    assert.deepEqual(board.active.map(({ id }) => id), ["active", "ready-active"]);
+    assert.deepEqual(board.served.map(({ id }) => id), ["served"]);
     assert.deepEqual(board.paid.map(({ id }) => id), ["paid-later", "paid-earlier"]);
     assert.deepEqual(board.archive.map(({ id }) => id), ["late-paid"]);
+    assert.deepEqual(Object.keys(board), [
+      "awaitingReview",
+      "active",
+      "served",
+      "paid",
+      "archive",
+    ]);
   });
 
   it("keeps only approved kitchen work and sorts it by approval time", () => {

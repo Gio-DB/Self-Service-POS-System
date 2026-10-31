@@ -26,6 +26,7 @@ function WaiterContent() {
   const [board, setBoard] = useState({
     awaitingReview: [] as Order[],
     active: [] as Order[],
+    served: [] as Order[],
     paid: [] as Order[],
     archive: [] as Order[],
   });
@@ -201,7 +202,7 @@ function WaiterContent() {
         <div>
           <p className="eyebrow">FRONT OF HOUSE</p>
           <h1>Waiter station</h1>
-          <p className="muted">Review and modify customer orders before the kitchen handoff, then record cash payments.</p>
+          <p className="muted">Review orders, follow their kitchen and service progress, then record cash payments.</p>
         </div>
         <button className="secondary-button" onClick={() => void refresh()}>Refresh</button>
       </div>
@@ -228,20 +229,38 @@ function WaiterContent() {
 
       <BoardSection
         eyebrow="IN PROGRESS"
-        title="Active orders"
+        title="Active orders being prepared in KDS"
         orders={board.active}
-        empty="Approved unpaid orders will appear here."
+        empty="Orders being prepared or ready in the KDS will appear here."
       >
         {(order) => (
           <article className="order-card" key={order.id}>
             <OrderSummary order={order} />
             {order.status === "READY" && order.paymentStatus === "UNPAID" && (
-              <div className="payment-box">
-                <button className="primary-button full-width" onClick={() => openCashKeypad(order)}>
-                  Enter cash received
+              <div className="button-row">
+                <button className="primary-button" onClick={() => void changeStatus(order, "SERVED")}>
+                  Mark as served
                 </button>
               </div>
             )}
+          </article>
+        )}
+      </BoardSection>
+
+      <BoardSection
+        eyebrow="SERVED"
+        title="Served orders to customer"
+        orders={board.served}
+        empty="Orders served and awaiting payment will appear here."
+      >
+        {(order) => (
+          <article className="order-card" key={order.id}>
+            <OrderSummary order={order} />
+            <div className="payment-box">
+              <button className="primary-button full-width" onClick={() => openCashKeypad(order)}>
+                Enter cash received
+              </button>
+            </div>
           </article>
         )}
       </BoardSection>

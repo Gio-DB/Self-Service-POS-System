@@ -9,6 +9,7 @@ export type BoardOrder = {
 export type WaiterOrderBoard<T extends BoardOrder> = {
   awaitingReview: T[];
   active: T[];
+  served: T[];
   paid: T[];
   archive: T[];
 };
@@ -44,6 +45,7 @@ export function createWaiterOrderBoard<T extends BoardOrder>(
   const board: WaiterOrderBoard<T> = {
     awaitingReview: [],
     active: [],
+    served: [],
     paid: [],
     archive: [],
   };
@@ -54,12 +56,15 @@ export function createWaiterOrderBoard<T extends BoardOrder>(
       board.awaitingReview.push(order);
     } else if (order.paymentStatus === "PAID") {
       board.paid.push(order);
+    } else if (order.status === "SERVED") {
+      board.served.push(order);
     } else if (["ACCEPTED", "PREPARING", "READY"].includes(order.status)) {
       board.active.push(order);
     }
   }
   board.awaitingReview.sort(oldestFirst);
   board.active.sort(oldestFirst);
+  board.served.sort(oldestFirst);
   board.paid.sort(newestPaidFirst);
   board.archive.sort(newestCreatedFirst);
   return board;

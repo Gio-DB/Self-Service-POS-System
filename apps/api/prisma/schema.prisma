@@ -62,6 +62,14 @@ model DailyOrderCounter {
   @@map("daily_order_counters")
 }
 
+model StaffCredential {
+  role      String   @id
+  pinHash   String   @map("pin_hash")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("staff_credentials")
+}
+
 model OrderItem {
   id                    Int       @id @default(autoincrement())
   orderId               String    @db.Uuid @map("order_id")

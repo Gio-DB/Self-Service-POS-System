@@ -30,7 +30,7 @@ export type Order = {
   businessDate: string;
   orderType: "TAKEAWAY" | "DINE_IN";
   customerReference: string | null;
-  status: "PENDING_REVIEW" | "ACCEPTED" | "PREPARING" | "READY" | "CANCELLED";
+  status: "PENDING_REVIEW" | "ACCEPTED" | "PREPARING" | "READY" | "SERVED" | "CANCELLED";
   paymentStatus: "UNPAID" | "PAID";
   totalMinorUnits: number;
   cashTenderedMinorUnits: number | null;
@@ -43,6 +43,11 @@ export type Order = {
 
 export type StaffRole = "WAITER" | "KITCHEN" | "ADMIN";
 
+export type StaffCredentialStatus = {
+  role: StaffRole;
+  configured: boolean;
+};
+
 export type StaffSession = {
   role: StaffRole;
   expiresAt: string;
@@ -51,6 +56,7 @@ export type StaffSession = {
 export type WaiterOrderBoard = {
   awaitingReview: Order[];
   active: Order[];
+  served: Order[];
   paid: Order[];
   archive: Order[];
 };
@@ -140,6 +146,13 @@ export const api = {
       paidOrderCount: number;
       totalMinorUnits: number;
     }>(`/api/reports/daily${date ? `?date=${encodeURIComponent(date)}` : ""}`),
+  getStaffCredentialStatus: () =>
+    request<StaffCredentialStatus[]>("/api/auth/credentials"),
+  updateStaffPins: (pins: Record<StaffRole, string>) =>
+    request<{ updated: boolean }>("/api/auth/credentials", {
+      method: "PATCH",
+      body: JSON.stringify(pins),
+    }),
   login: (role: StaffRole, pin: string) =>
     request<{ role: StaffRole }>("/api/auth/login", {
       method: "POST",

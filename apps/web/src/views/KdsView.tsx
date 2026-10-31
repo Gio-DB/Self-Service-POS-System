@@ -106,6 +106,12 @@ function KitchenTicket({
   order: Order;
   onAdvance: (order: Order) => Promise<void>;
 }) {
+  const customerReference = order.customerReference?.trim();
+  const customerDescription = customerReference
+    ? order.orderType === "DINE_IN"
+      ? `Table ${customerReference}`
+      : customerReference
+    : null;
   return (
     <article className={`kds-card kds-${order.status.toLowerCase()}`}>
       <div className="kds-card-top">
@@ -115,11 +121,7 @@ function KitchenTicket({
       <div className="kds-card-title">
         <div>
           <p className="eyebrow kds-order-type">{order.orderType === "DINE_IN" ? "DINE IN" : "TAKEAWAY"}</p>
-          <h2>
-            {order.orderType === "DINE_IN"
-              ? order.customerReference ? `Table ${order.customerReference}` : "Dine in"
-              : order.customerReference || "Takeaway"}
-          </h2>
+          {customerDescription && <h2>{customerDescription}</h2>}
         </div>
         <span className={`status-pill status-${order.status.toLowerCase()}`}>{order.status}</span>
       </div>

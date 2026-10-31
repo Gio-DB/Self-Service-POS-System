@@ -4,9 +4,10 @@ import { z } from "zod";
 import {
   createStaffSessionToken,
   getStaffSession,
-  pinMatches,
+  hashStaffPin,
   readStaffAuthConfig,
   requireStaffRole,
+  staffPinHashMatches,
   staffRoles,
   staffSessionCookie,
   staffSessionCookieOptions,
@@ -73,12 +74,52 @@ const loginSchema = z.object({
   pin: z.string().min(1).max(128),
 }).strict();
 
+const staffPinsSchema = z.object({
+  WAITER: z.string().trim().min(4).max(128),
+  KITCHEN: z.string().trim().min(4).max(128),
+  ADMIN: z.string().trim().min(4).max(128),
+}).strict();
+
 function parseOrThrow<T>(schema: z.ZodType<T>, value: unknown): T {
   const parsed = schema.safeParse(value);
   if (!parsed.success) {
     throw new HttpError(400, parsed.error.issues[0]?.message ?? "Invalid request.");
   }
   return parsed.data;
+}
+
+async function ensureStaffCredentials(
+  prisma: PrismaClient,
+  authConfig: ReturnType<typeof readStaffAuthConfig>,
+) {
+  let credentials = await prisma.staffCredential.findMany();
+  const configuredRoles = new Set(credentials.map(({ role }) => role));
+  const missingRoles = staffRoles.filter((role) => !configuredRoles.has(role));
+  if (missingRoles.length) {
+    const rolesWithoutBootstrapPins = missingRoles.filter(
+      (role) => authConfig.pins[role].length < 4 || authConfig.pins[role].length > 128,
+    );
+    if (rolesWithoutBootstrapPins.length) {
+      const settings = rolesWithoutBootstrapPins
+        .map((role) => `STAFF_${role}_PIN`)
+        .join(", ");
+      throw new Error(`Set ${settings} to initialize staff credentials.`);
+    }
+    await prisma.staffCredential.createMany({
+      data: await Promise.all(missingRoles.map(async (role) => ({
+        role,
+        pinHash: await hashStaffPin(authConfig.pins[role]),
+        updatedAt: new Date(),
+      }))),
+      skipDuplicates: true,
+    });
+    credentials = await prisma.staffCredential.findMany();
+  }
+  const byRole = new Map(credentials.map(({ role, pinHash }) => [role, pinHash]));
+  if (staffRoles.some((role) => !byRole.has(role))) {
+    throw new Error("Could not initialize all staff PIN credentials.");
+  }
+  return byRole;
 }
 
 export function parseCustomerOrderInput(value: unknown) {
@@ -169,9 +210,11 @@ export function createApiRouter(prisma: PrismaClient, events: RealtimeEvents) {
   const authConfig = readStaffAuthConfig();
   const timeZone = restaurantTimeZone();
 
-  router.post("/auth/login", (request, response) => {
+  router.post("/auth/login", async (request, response) => {
     const input = parseOrThrow(loginSchema, request.body);
-    if (!pinMatches(input.pin, authConfig.pins[input.role])) {
+    const credentials = await ensureStaffCredentials(prisma, authConfig);
+    const pinHash = credentials.get(input.role);
+    if (!pinHash || !(await staffPinHashMatches(input.pin, pinHash))) {
       throw new HttpError(401, "Invalid staff PIN.");
     }
     const token = createStaffSessionToken(input.role, authConfig);
@@ -186,6 +229,32 @@ export function createApiRouter(prisma: PrismaClient, events: RealtimeEvents) {
       role: session.role,
       expiresAt: session.expiresAt.toISOString(),
     });
+  });
+
+  router.get("/auth/credentials", async (request, response) => {
+    requireStaffRole(request, authConfig, "ADMIN");
+    const credentials = await ensureStaffCredentials(prisma, authConfig);
+    response.json(staffRoles.map((role) => ({
+      role,
+      configured: credentials.has(role),
+    })));
+  });
+
+  router.patch("/auth/credentials", async (request, response) => {
+    requireStaffRole(request, authConfig, "ADMIN");
+    const pins = parseOrThrow(staffPinsSchema, request.body);
+    await ensureStaffCredentials(prisma, authConfig);
+    const hashes = await Promise.all(staffRoles.map(async (role) => ({
+      role,
+      pinHash: await hashStaffPin(pins[role]),
+    })));
+    await prisma.$transaction(hashes.map(({ role, pinHash }) =>
+      prisma.staffCredential.update({
+        where: { role },
+        data: { pinHash },
+      }),
+    ));
+    response.json({ updated: true });
   });
 
   router.post("/auth/logout", (_request, response) => {
@@ -461,8 +530,8 @@ export function createApiRouter(prisma: PrismaClient, events: RealtimeEvents) {
       where: { id: orderId },
     });
     if (!current) throw new HttpError(404, "Order not found.");
-    if (current.status !== "READY" || current.paymentStatus !== "UNPAID") {
-      throw new HttpError(409, "Only unpaid ready orders can be paid.");
+    if (current.status !== "SERVED" || current.paymentStatus !== "UNPAID") {
+      throw new HttpError(409, "Only unpaid served orders can be paid.");
     }
     let changeDueMinorUnits: number;
     try {
@@ -480,7 +549,7 @@ export function createApiRouter(prisma: PrismaClient, events: RealtimeEvents) {
       const result = await transaction.order.updateMany({
         where: {
           id: current.id,
-          status: "READY",
+          status: "SERVED",
           paymentStatus: "UNPAID",
         },
         data: {

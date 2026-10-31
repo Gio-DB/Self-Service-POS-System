@@ -3,10 +3,11 @@ import { describe, it } from "node:test";
 import type { Request } from "express";
 import {
   createStaffSessionToken,
-  pinMatches,
+  hashStaffPin,
   readStaffSessionToken,
   requireStaffRole,
   staffSessionCookie,
+  staffPinHashMatches,
   type StaffAuthConfig,
 } from "./auth.js";
 import { HttpError } from "./errors.js";
@@ -40,8 +41,12 @@ describe("staff role sessions", () => {
     );
   });
 
-  it("compares shared PINs without exposing the expected value", () => {
-    assert.equal(pinMatches("1111", config.pins.WAITER), true);
-    assert.equal(pinMatches("1112", config.pins.WAITER), false);
+  it("stores role PINs as non-recoverable hashes and verifies them", async () => {
+    const encodedHash = await hashStaffPin("test-role-pin");
+    assert.notEqual(encodedHash, "test-role-pin");
+    assert.match(encodedHash, /^scrypt\$[0-9a-f]{32}\$[0-9a-f]{128}$/);
+    assert.equal(await staffPinHashMatches("test-role-pin", encodedHash), true);
+    assert.equal(await staffPinHashMatches("wrong-role-pin", encodedHash), false);
+    assert.equal(await staffPinHashMatches("test-role-pin", "invalid-hash"), false);
   });
 });

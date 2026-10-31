@@ -3,6 +3,7 @@ export const orderStatuses = [
   "ACCEPTED",
   "PREPARING",
   "READY",
+  "SERVED",
   "CANCELLED",
 ] as const;
 
@@ -15,7 +16,8 @@ const allowedTransitions: Record<OrderStatus, readonly OrderStatus[]> = {
   PENDING_REVIEW: ["ACCEPTED", "CANCELLED"],
   ACCEPTED: ["PREPARING", "CANCELLED"],
   PREPARING: ["READY"],
-  READY: [],
+  READY: ["SERVED"],
+  SERVED: [],
   CANCELLED: [],
 };
 
@@ -31,7 +33,7 @@ export function canRoleRequestOrderStatus(
   status: OrderStatus,
 ): boolean {
   if (role === "WAITER") {
-    return status === "ACCEPTED" || status === "CANCELLED";
+    return status === "ACCEPTED" || status === "SERVED" || status === "CANCELLED";
   }
   if (role === "KITCHEN") {
     return status === "PREPARING" || status === "READY";
@@ -46,8 +48,11 @@ export function canRoleTransitionOrder(
 ): boolean {
   if (!canTransitionOrder(current, next)) return false;
   if (role === "WAITER") {
-    return current === "PENDING_REVIEW" &&
-      (next === "ACCEPTED" || next === "CANCELLED");
+    return (
+      (current === "PENDING_REVIEW" &&
+        (next === "ACCEPTED" || next === "CANCELLED")) ||
+      (current === "READY" && next === "SERVED")
+    );
   }
   if (role === "KITCHEN") {
     return (

@@ -1,6 +1,7 @@
 import {
-  createHash,
   createHmac,
+  randomBytes,
+  scrypt as scryptCallback,
   timingSafeEqual,
 } from "node:crypto";
 import type { Request } from "express";
@@ -22,6 +23,16 @@ export type StaffSession = {
 
 const sessionCookieName = "pos_staff_session";
 const defaultSessionTtlHours = 8;
+const staffPinHashBytes = 64;
+
+function deriveStaffPinHash(pin: string, salt: Buffer): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    scryptCallback(pin, salt, staffPinHashBytes, (error, derivedKey) => {
+      if (error) reject(error);
+      else resolve(derivedKey);
+    });
+  });
+}
 
 function requiredSetting(name: string, environment: NodeJS.ProcessEnv): string {
   const value = environment[name]?.trim();
@@ -29,6 +40,10 @@ function requiredSetting(name: string, environment: NodeJS.ProcessEnv): string {
     throw new Error(`${name} must be configured before starting the API.`);
   }
   return value;
+}
+
+function bootstrapPinSetting(name: string, environment: NodeJS.ProcessEnv): string {
+  return environment[name]?.trim() ?? "";
 }
 
 export function readStaffAuthConfig(
@@ -45,9 +60,9 @@ export function readStaffAuthConfig(
   return {
     sessionSecret: requiredSetting("STAFF_SESSION_SECRET", environment),
     pins: {
-      WAITER: requiredSetting("STAFF_WAITER_PIN", environment),
-      KITCHEN: requiredSetting("STAFF_KITCHEN_PIN", environment),
-      ADMIN: requiredSetting("STAFF_ADMIN_PIN", environment),
+      WAITER: bootstrapPinSetting("STAFF_WAITER_PIN", environment),
+      KITCHEN: bootstrapPinSetting("STAFF_KITCHEN_PIN", environment),
+      ADMIN: bootstrapPinSetting("STAFF_ADMIN_PIN", environment),
     },
     sessionTtlMs: sessionTtlHours * 60 * 60 * 1_000,
   };
@@ -139,9 +154,30 @@ export function requireStaffRole(
   return session;
 }
 
-export function pinMatches(suppliedPin: string, expectedPin: string): boolean {
-  const suppliedHash = createHash("sha256").update(suppliedPin).digest();
-  const expectedHash = createHash("sha256").update(expectedPin).digest();
+export async function hashStaffPin(pin: string): Promise<string> {
+  const salt = randomBytes(16);
+  const hash = await deriveStaffPinHash(pin, salt);
+  return `scrypt$${salt.toString("hex")}$${hash.toString("hex")}`;
+}
+
+export async function staffPinHashMatches(
+  suppliedPin: string,
+  encodedHash: string,
+): Promise<boolean> {
+  const [algorithm, saltHex, hashHex, extra] = encodedHash.split("$");
+  if (
+    algorithm !== "scrypt" ||
+    !saltHex ||
+    !hashHex ||
+    extra !== undefined ||
+    !/^[0-9a-f]{32}$/i.test(saltHex) ||
+    !/^[0-9a-f]{128}$/i.test(hashHex)
+  ) {
+    return false;
+  }
+  const salt = Buffer.from(saltHex, "hex");
+  const expectedHash = Buffer.from(hashHex, "hex");
+  const suppliedHash = await deriveStaffPinHash(suppliedPin, salt);
   return timingSafeEqual(suppliedHash, expectedHash);
 }
 

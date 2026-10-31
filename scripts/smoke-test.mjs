@@ -36,6 +36,14 @@ async function loginAs(role) {
   staffCookies.set(role, cookie);
 }
 
+function configuredPin(role) {
+  return process.env[`STAFF_${role}_PIN`] ?? {
+    WAITER: "1111",
+    KITCHEN: "2222",
+    ADMIN: "3333",
+  }[role];
+}
+
 async function waitForSocket() {
   if (socket.connected) return;
   await new Promise((resolve, reject) => {
@@ -77,6 +85,22 @@ async function main() {
     "Staff order boards should require a session.",
   );
   await loginAs("ADMIN");
+  const credentialStatus = await request(
+    "/api/auth/credentials",
+    "GET",
+    undefined,
+    "ADMIN",
+  );
+  assert.equal(credentialStatus.status, 200);
+  assert.deepEqual(
+    credentialStatus.value,
+    ["WAITER", "KITCHEN", "ADMIN"].map((role) => ({ role, configured: true })),
+  );
+  assert.equal(
+    JSON.stringify(credentialStatus.value).includes(configuredPin("ADMIN")),
+    false,
+    "The Admin credential status must not reveal PIN values.",
+  );
 
   const menuResult = await request("/api/menu");
   assert.equal(menuResult.status, 200);
@@ -296,6 +320,10 @@ async function main() {
       assert.equal(prepared.status, 200);
     }
     await loginAs("WAITER");
+    const servedRaceOrder = await request(`/api/orders/${concurrentId}/status`, "PATCH", {
+      status: "SERVED",
+    }, "WAITER");
+    assert.equal(servedRaceOrder.status, 200);
     const paidRaceOrder = await request(`/api/orders/${concurrentId}/payment`, "POST", {
       cashTenderedMinorUnits: raceWinner.value.totalMinorUnits,
     }, "WAITER");
@@ -342,7 +370,29 @@ async function main() {
     assert.equal(updated.value.status, status);
   }
 
+  const kitchenServeAttempt = await request(`/api/orders/${orderId}/status`, "PATCH", {
+    status: "SERVED",
+  }, "KITCHEN");
+  assert.equal(kitchenServeAttempt.status, 403);
+  const paymentBeforeServing = await request(`/api/orders/${orderId}/payment`, "POST", {
+    cashTenderedMinorUnits: expectedTotal,
+  }, "WAITER");
+  assert.equal(paymentBeforeServing.status, 409);
+
   await loginAs("WAITER");
+  const served = await request(`/api/orders/${orderId}/status`, "PATCH", {
+    status: "SERVED",
+  }, "WAITER");
+  assert.equal(served.status, 200);
+  assert.equal(served.value.status, "SERVED");
+  const waiterBoardWithServedOrder = await request(
+    "/api/orders/waiter-board",
+    "GET",
+    undefined,
+    "WAITER",
+  );
+  assert.ok(waiterBoardWithServedOrder.value.served.some((order) => order.id === orderId));
+  assert.ok(!waiterBoardWithServedOrder.value.active.some((order) => order.id === orderId));
   const underpaid = await request(`/api/orders/${orderId}/payment`, "POST", {
     cashTenderedMinorUnits: expectedTotal - 1,
   }, "WAITER");
@@ -375,6 +425,10 @@ async function main() {
     }, "KITCHEN");
     assert.equal(changed.status, 200);
   }
+  const servedRace = await request(`/api/orders/${paymentRaceId}/status`, "PATCH", {
+    status: "SERVED",
+  }, "WAITER");
+  assert.equal(servedRace.status, 200);
   const paymentAttempts = await Promise.all([
     request(`/api/orders/${paymentRaceId}/payment`, "POST", {
       cashTenderedMinorUnits: paymentRaceCreated.value.totalMinorUnits,
@@ -397,17 +451,31 @@ async function main() {
     ...kdsBoard.value.archive,
   ];
   assert.ok(
-    visibleKitchenOrders.some((order) => order.id === orderId),
-    "Ready orders remain visible to the kitchen for the rest of the business day.",
+    !visibleKitchenOrders.some((order) => order.id === orderId),
+    "Served orders leave the KDS queue.",
   );
-  const kitchenOrder = visibleKitchenOrders.find((order) => order.id === orderId);
-  assert.equal(kitchenOrder.orderNumber, created.value.orderNumber);
 
   const waiterBoard = await request("/api/orders/waiter-board", "GET", undefined, "WAITER");
   const waiterOrder = waiterBoard.value.paid.find((order) => order.id === orderId);
   assert.ok(waiterOrder);
+  assert.equal(waiterOrder.status, "SERVED");
   assert.equal(waiterOrder.orderNumber, created.value.orderNumber);
   assert.equal(waiterOrder.customerReference, "SMOKE");
+
+  const deniedCredentialStatus = await request(
+    "/api/auth/credentials",
+    "GET",
+    undefined,
+    "WAITER",
+  );
+  assert.equal(deniedCredentialStatus.status, 403);
+  const deniedCredentialUpdate = await request(
+    "/api/auth/credentials",
+    "PATCH",
+    { WAITER: "changed-waiter", KITCHEN: "changed-kitchen", ADMIN: "changed-admin" },
+    "WAITER",
+  );
+  assert.equal(deniedCredentialUpdate.status, 403);
   const afterReport = await request(
     `/api/reports/daily?date=${reportDate}`,
     "GET",
@@ -474,8 +542,54 @@ async function main() {
   );
   assert.equal(restored.status, 200);
 
+  const originalPins = {
+    WAITER: configuredPin("WAITER"),
+    KITCHEN: configuredPin("KITCHEN"),
+    ADMIN: configuredPin("ADMIN"),
+  };
+  const changedPins = {
+    WAITER: "smoke-waiter-pin",
+    KITCHEN: "smoke-kitchen-pin",
+    ADMIN: "smoke-admin-pin",
+  };
+  const invalidPinChange = await request(
+    "/api/auth/credentials",
+    "PATCH",
+    { ...changedPins, WAITER: "bad" },
+    "ADMIN",
+  );
+  assert.equal(invalidPinChange.status, 400);
+  const changed = await request(
+    "/api/auth/credentials",
+    "PATCH",
+    changedPins,
+    "ADMIN",
+  );
+  assert.equal(changed.status, 200);
+  assert.deepEqual(changed.value, { updated: true });
+  assert.equal(JSON.stringify(changed.value).includes(changedPins.ADMIN), false);
+  for (const role of ["WAITER", "KITCHEN", "ADMIN"]) {
+    assert.equal(
+      (await request("/api/auth/login", "POST", { role, pin: originalPins[role] })).status,
+      401,
+      `Old ${role} PIN should no longer work after replacement.`,
+    );
+    assert.equal(
+      (await request("/api/auth/login", "POST", { role, pin: changedPins[role] })).status,
+      200,
+      `New ${role} PIN should work after replacement.`,
+    );
+  }
+  const restoredPins = await request(
+    "/api/auth/credentials",
+    "PATCH",
+    originalPins,
+    "ADMIN",
+  );
+  assert.equal(restoredPins.status, 200);
+
   console.log("POS smoke test passed.");
-  console.log(`Created, edited, approved, prepared, and paid order ${orderId}.`);
+  console.log(`Created, edited, approved, prepared, served, and paid order ${orderId}.`);
   console.log("Input boundaries, concurrency, WebSocket events, menu availability, and reports passed.");
 }
 
